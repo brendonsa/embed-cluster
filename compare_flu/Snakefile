@@ -525,11 +525,11 @@ rule join_CARP:
     input:
         embeddings="results/embeddingCARP.txt"
     output:
-        csv_file="results/embed_CARP_{gene}.csv"
+        csv_file="results/embed_CARP.csv"
     conda: "../envs/clustering.yaml"
     shell:
         """
-        python ../scripts/join_data.py results/features_CARP/alignment_filtered_{wildcards.gene} {output.csv_file} --layer 33
+        python ../scripts/join_data.py results/features_CARP/alignment_filtered_All {output.csv_file} --layer 33
         """
 
 MODEL_FEATURES_DIR = {
