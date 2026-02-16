@@ -257,23 +257,6 @@ rule seasonal_flu_training_root_and_prune_tree:
             --root {params.root} \
             --output {output.tree} 2>&1 | tee {log}
         """
-rule seasonal_flu_test_clades:
-    message: " Labeling clades as specified in config/clades.tsv"
-    input:
-        tree = rules.seasonal_flu_test_refine.output.tree,
-        aa_muts = rules.seasonal_flu_test_translate.output.node_data,
-        nuc_muts = rules.seasonal_flu_test_ancestral.output.node_data,
-        clades = seasonal_flu_test_files.clades
-    output:
-        clade_data = "results/clades.json"
-    conda: "../envs/clustering.yaml"
-    shell:
-        """
-        augur clades --tree {input.tree} \
-            --mutations {input.nuc_muts} {input.aa_muts} \
-            --clades {input.clades} \
-            --output {output.clade_data}
-        """
 
 rule seasonal_flu_training_refine:
     input:
@@ -557,7 +540,6 @@ MODEL_FEATURES_DIR = {
 
 rule join_t_models_typed:
     input:
-
         marker = lambda wc: (
             "results/embedding.txt"      if wc.model.startswith("t33-650M") else
             ("results/embeddingt36.txt"  if wc.model.startswith("t36-3B")   else
