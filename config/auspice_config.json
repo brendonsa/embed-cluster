@@ -1,0 +1,110 @@
+{
+    "title": "Seasonal influenza A/H3N2 HA phylogeny from 2016-2018",
+    "colorings": [
+        {
+            "key": "gt",
+            "title": "Genotype",
+            "type": "categorical"
+        },
+        {
+            "key": "num_date",
+            "title": "Date",
+            "type": "continuous"
+        },
+        {
+            "key": "clade_membership",
+            "title": "Clade",
+            "type": "categorical"
+        },
+        {
+            "key": "pca_label",
+            "title": "PCA cluster",
+            "type": "categorical"
+        },
+        {
+            "key": "mds_label",
+            "title": "MDS cluster",
+            "type": "categorical"
+        },
+        {
+            "key": "t-sne_label",
+            "title": "t-SNE cluster",
+            "type": "categorical"
+        },
+        {
+            "key": "umap_label",
+            "title": "UMAP cluster",
+            "type": "categorical"
+        },
+        {
+            "key": "genetic_label",
+            "title": "genetic distance cluster",
+            "type": "categorical"
+        },
+        {
+            "key": "pca1",
+            "title": "PCA1",
+            "type": "continuous"
+        },
+        {
+            "key": "pca2",
+            "title": "PCA2",
+            "type": "continuous"
+        },
+        {
+            "key": "mds1",
+            "title": "MDS 1",
+            "type": "continuous"
+        },
+        {
+            "key": "mds2",
+            "title": "MDS 2",
+            "type": "continuous"
+        },
+        {
+            "key": "mds3",
+            "title": "MDS 3",
+            "type": "continuous"
+        },
+        {
+            "key": "tsne_x",
+            "title": "t-SNE 1",
+            "type": "continuous"
+        },
+        {
+            "key": "tsne_y",
+            "title": "t-SNE 2",
+            "type": "continuous"
+        },
+        {
+            "key": "umap_x",
+            "title": "UMAP 1",
+            "type": "continuous"
+        },
+        {
+            "key": "umap_y",
+            "title": "UMAP 2",
+            "type": "continuous"
+        }
+    ],
+    "display_defaults": {
+        "color_by": "clade_membership",
+        "distance_measure": "div"
+    },
+    "maintainers": [
+        {"name": "Sravani Nanduri"},
+        {"name": "John Huddleston"}
+    ],
+    "filters": [
+      "pca_label",
+      "mds_label",
+      "t-sne_label",
+      "umap_label",
+      "genetic_label",
+      "clade_membership"
+    ],
+    "panels": [
+        "tree",
+        "entropy"
+    ]
+}

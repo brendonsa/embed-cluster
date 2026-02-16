@@ -1,0 +1,109 @@
+# Benchmark Snakefile for CPU-only extract methods
+# Excludes t48 model as requested
+# Assumes data in results/translations/alignment_filtered_All.fasta already exists
+
+# Models to benchmark (excluding t48)
+BENCHMARK_MODELS = ["t33-650M", "t36-3B", "prot5", "protbert", "CARP"]
+
+rule all_benchmark:
+    input:
+        expand("benchmarks/extract_{model}_cpu.txt", model=BENCHMARK_MODELS)
+
+# Benchmarking rules with CPU-only execution
+
+rule benchmark_extract_features_esm_t33_650M:
+    input:
+        fasta = "results/translations/alignment_filtered_All.fasta"
+    output:
+        embeddings = "results/benchmark/embedding_t33_cpu.txt"
+    conda: "../envs/clustering.yaml"
+    params:
+        output_dir = "results/benchmark/features_t33-650M/alignment_filtered_All"
+    benchmark:
+        "benchmarks/extract_t33-650M_cpu.txt"
+    shell:
+        """
+        python ../scripts/extract.py esm2_t33_650M_UR50D {input.fasta} {params.output_dir} \
+            --repr_layers 33 --include mean bos --nogpu
+        touch {output.embeddings}
+        """
+
+rule benchmark_extract_features_esm_t36_3B:
+    input:
+        fasta = "results/translations/alignment_filtered_All.fasta"
+    output:
+        marker = "results/benchmark/embeddingt36_cpu.txt"
+    conda: "../envs/clustering.yaml"
+    params:
+        output_dir = "results/benchmark/features_t36-3B/alignment_filtered_All"
+    benchmark:
+        "benchmarks/extract_t36-3B_cpu.txt"
+    shell:
+        """
+        python ../scripts/extract.py esm2_t36_3B_UR50D {input.fasta} {params.output_dir} \
+            --repr_layers 36 --include mean bos --nogpu
+        touch {output.marker}
+        """
+
+rule benchmark_extract_features_prot5:
+    input:
+        fasta = "results/translations/alignment_filtered_All.fasta"
+    output:
+        marker = "results/benchmark/embedding_prot5_cpu.txt"
+    conda: "../envs/clustering.yaml"
+    params:
+        script = "../scripts/extract_prott5.py",
+        output_dir = "results/benchmark/features/prot5/All",
+        model = "Rostlab/prot_t5_xl_uniref50",
+        device = "cpu"
+    benchmark:
+        "benchmarks/extract_prot5_cpu.txt"
+    shell:
+        """
+        python {params.script} \
+            --fasta {input.fasta} \
+            --output-dir {params.output_dir} \
+            --model-name {params.model} \
+            --device {params.device}
+        touch {output.marker}
+        """
+
+rule benchmark_extract_features_protbert:
+    input:
+        fasta = "results/translations/alignment_filtered_All.fasta"
+    output:
+        marker = "results/benchmark/embedding_protbert_cpu.txt"
+    conda: "../envs/clustering.yaml"
+    params:
+        script = "../scripts/extract_protbert.py",
+        output_dir = "results/benchmark/features/protbert/All",
+        model = "Rostlab/prot_bert_bfd",
+        device = "cpu"
+    benchmark:
+        "benchmarks/extract_protbert_cpu.txt"
+    shell:
+        """
+        python {params.script} \
+            --fasta {input.fasta} \
+            --output-dir {params.output_dir} \
+            --model-name {params.model} \
+            --device {params.device}
+        touch {output.marker}
+        """
+
+rule benchmark_extract_features_CARP:
+    input:
+        fasta = "results/translations/alignment_filtered_All.fasta"
+    output:
+        marker = "results/benchmark/embeddingCARP_cpu.txt"
+    conda: "../envs/clustering.yaml"
+    params:
+        output_dir = "results/benchmark/features_CARP/alignment_filtered_All"
+    benchmark:
+        "benchmarks/extract_CARP_cpu.txt"
+    shell:
+        """
+        python ../scripts/extract_CARP.py carp_640M {input.fasta} {params.output_dir} \
+            --include mean --repr_layers 33 --device cpu
+        touch {output.marker}
+        """
