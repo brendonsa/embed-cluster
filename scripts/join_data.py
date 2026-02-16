@@ -75,8 +75,8 @@ def main():
     parser.add_argument("output_csv", type=str, help="Output CSV file.")
     parser.add_argument("--layer", type=int, default=33,
                         help="Layer number to extract embeddings from (default: 33).")
-    parser.add_argument("--mode", choices=["bos", "mean", "attention_mean", "site_mean", "windowed"], default="mean",
-                        help="Which embedding mode to extract: bos, mean, attention_mean, site_mean, or windowed.")
+    parser.add_argument("--mode", choices=["bos", "mean", "attention-mean", "site-mean", "windowed"], default="mean",
+                        help="Which embedding mode to extract: bos, mean, attention-mean, site-mean, or windowed.")
     args = parser.parse_args()
 
     print(f"Loading data from {args.input_dir} using mode: {args.mode}...")

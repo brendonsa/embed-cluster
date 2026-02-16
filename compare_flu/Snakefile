@@ -50,7 +50,7 @@ DISTANCE_THRESHOLDS = [
 ]
 genes = ["All"]
 T_TYPES = ["mean", "bos"]
-T36_EXTRA_TYPES = ["attention_mean", "site_mean"]
+T36_EXTRA_TYPES = ["attention-mean", "site-mean"]
 T_MODELS_BASE = ["t33-650M", "t36-3B", "t48-15B"]
 T_MODELS_TYPED = (
     [f"{m}-{t}" for m in T_MODELS_BASE for t in T_TYPES]
@@ -460,7 +460,7 @@ rule extract_features_esm_t36_3B:
     shell:
         """
         python ../scripts/extract.py esm2_t36_3B_UR50D {input.fasta} {params.output_dir} \
-            --repr_layers 36 --include mean bos attention_mean site_mean \
+            --repr_layers 36 --include mean bos attention-mean site-mean \
             --sites_file {input.sites_file} --cuda_device 0
         touch {output.marker}
         """
