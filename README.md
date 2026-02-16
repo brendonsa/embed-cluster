@@ -5,7 +5,7 @@ Embedding-based clustering of seasonal influenza H3N2 HA sequences using protein
 ## Prerequisites
 
 - [Conda](https://docs.conda.io/) (or [Mamba](https://mamba.readthedocs.io/))
-- [Snakemake](https://snakemake.readthedocs.io/) (v7)
+- [Snakemake](https://snakemake.readthedocs.io/) (v8.14)
 - GPU recommended for PLM feature extraction (CUDA 12.4)
 
 ## Setup

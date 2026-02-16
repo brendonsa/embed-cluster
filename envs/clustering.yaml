@@ -317,8 +317,6 @@ dependencies:
   - slacker=0.14.0=py_0
   - smart_open=7.0.5=pyhd8ed1ab_1
   - smmap=5.0.0=pyhd8ed1ab_0
-  - snakemake=7.32.3=hdfd78af_1
-  - snakemake-minimal=7.32.3=pyhdfd78af_1
   - stack_data=0.2.0=pyhd3eb1b0_0
   - statsmodels=0.14.0=py38h7f0c24c_3
   - stone=3.3.2=pyhd8ed1ab_0
