@@ -1,8 +1,87 @@
 # Clustering
 
+Embedding-based clustering of seasonal influenza H3N2 HA sequences using protein language models (ESM-2, ProtBERT, ProtT5, CARP) and traditional dimensionality reduction methods (PCA, t-SNE, UMAP, MDS), with HDBSCAN clustering evaluated against phylogenetic clades.
+
+## Prerequisites
+
+- [Conda](https://docs.conda.io/) (or [Mamba](https://mamba.readthedocs.io/))
+- [Snakemake](https://snakemake.readthedocs.io/) (v7)
+- GPU recommended for PLM feature extraction (CUDA 12.4)
+
+## Setup
+
+Create the conda environment from the provided yaml:
+
+```bash
+conda env create -f envs/clustering.yaml
+```
+
+Or, if you prefer mamba:
+
+```bash
+mamba env create -f envs/clustering.yaml
+```
+
+## Project structure
+
+```
+clustering/
+├── compare_flu/                # Training pipeline (2016-2018 sequences)
+│   ├── Snakefile
+│   └── profile/config.yaml
+├── compare_flu2018-2020/       # Validation pipeline (2018-2020 sequences)
+│   ├── Snakefile
+│   └── profile/config.yaml
+├── config/                     # Reference sequences, clades, and augur configs
+├── data/                       # Input FASTA (NCBI H3N2 HA)
+├── envs/                       # Conda environment definition
+├── scripts/                    # Python scripts for extraction, reduction, clustering
+└── simulations/                # Simulation configs and parameter files
+```
+
+## Running
+
+### Training pipeline (2016-2018)
+
+```bash
+cd compare_flu
+snakemake --profile profile
+```
+
+This will:
+1. Filter and align H3N2 HA sequences (2016-2018)
+2. Build a phylogenetic tree and assign clades
+3. Extract embeddings using ESM-2 (t33-650M, t36-3B, t48-15B), ProtBERT, ProtT5, and CARP
+4. Reduce embeddings with PCA, t-SNE, UMAP, and MDS (multiple metrics and component counts)
+5. Cluster with HDBSCAN across distance thresholds and evaluate against clade assignments
+6. Export results as an Auspice JSON for visualization
+
+### Validation pipeline (2018-2020)
+
+The validation pipeline requires the training pipeline to be completed first, as it uses the optimal clustering parameters found during training.
+
+```bash
+cd compare_flu2018-2020
+snakemake --profile profile
+```
+
+This runs the same embedding and reduction steps on 2018-2020 sequences, clusters using the optimal parameters from training, and produces a `best_per_model_HDBSCAN.csv` comparing train vs. validation performance for each model.
+
+### Running specific rules
+
+To run only a specific step, specify the target:
+
+```bash
+snakemake --profile profile results/embed_prot5.csv
+```
+
+### GPU vs CPU
+
+Most PLM extraction rules request a GPU (`resources: gpu=1`). The t48-15B model falls back to CPU with multi-threading if no GPU is available. Adjust `CPU_THREADS` at the top of each Snakefile as needed.
+
 ## Acknowledgments
 
-Rules, scripts, data and configurations adapted from [blab/cartography](https://github.com/blab/cartography) 
+Rules, scripts, data and configurations adapted from [blab/cartography](https://github.com/blab/cartography)
 
 Copyright (c) 2019 Bedford Lab.
 
