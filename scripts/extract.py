@@ -17,7 +17,10 @@ def create_parser():
     parser.add_argument("--toks_per_batch", type=int, default=4096)
     parser.add_argument("--repr_layers", type=int, nargs="+", default=[-1])
     parser.add_argument("--include", type=str, nargs="+",
-                        choices=["mean", "per_tok", "bos", "contacts", "attentions"], required=True)
+                        choices=["mean", "per_tok", "bos", "contacts", "attentions",
+                                 "attention_mean", "site_mean"], required=True)
+    parser.add_argument("--sites_file", type=pathlib.Path, default=None,
+                        help="File with site indices (0-based, one per line or comma-separated) for site_mean mode")
     parser.add_argument("--window_size", type=int, default=None,
                         help="Window size for windowed extraction (optional)")
     parser.add_argument("--stride", type=int, default=None,
@@ -58,7 +61,7 @@ def run(args):
         print(f"Using {cpu_threads} CPU threads for inference")
 
     toks_per_batch = args.toks_per_batch
-    if "attentions" in args.include:
+    if "attentions" in args.include or "attention_mean" in args.include:
         toks_per_batch = max(1, toks_per_batch // 4)
         print(
             f"Attentions requested: reducing toks_per_batch to {toks_per_batch} to fit in memory")
@@ -76,8 +79,16 @@ def run(args):
     print(f"Read {args.fasta_file} with {len(dataset)} sequences")
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    if "site_mean" in args.include:
+        if args.sites_file is None:
+            raise ValueError("--sites_file is required when using site_mean")
+        with open(args.sites_file) as f:
+            text = f.read().strip()
+        sites = [int(s.strip()) for s in text.replace('\n', ',').split(',') if s.strip()]
+        print(f"Site-informed mode: using {len(sites)} sites: {sites}")
+
     return_contacts = "contacts" in args.include
-    return_attentions = "attentions" in args.include
+    return_attentions = "attentions" in args.include or "attention_mean" in args.include
     assert all(-(model.num_layers + 1) <= i <=
                model.num_layers for i in args.repr_layers)
     repr_layers = [(i + model.num_layers + 1) %
@@ -130,6 +141,34 @@ def run(args):
                         for layer in repr_layers
                     }
 
+                if "attention_mean" in args.include:
+                    full_result["attention_mean_representations"] = {}
+                    for layer in repr_layers:
+                        if layer in attentions:
+                            # attentions[layer][i] shape: (heads, seq_len, seq_len)
+                            attn = attentions[layer][i, :, 1:seq_len + 1, 1:seq_len + 1]
+                            # Average across heads and source positions to get per-token importance
+                            weights = attn.mean(dim=0).mean(dim=0)  # (seq_len,)
+                            weights = weights / weights.sum()
+                            full_result["attention_mean_representations"][layer] = (
+                                (token_repr[layer] * weights.unsqueeze(-1)).sum(0).clone()
+                            )
+
+                if "site_mean" in args.include:
+                    site_indices = [s for s in sites if s < seq_len]
+                    if len(site_indices) == 0:
+                        print(f"Warning: no valid sites for {label} (seq_len={seq_len}), falling back to full mean")
+                        full_result["site_mean_representations"] = {
+                            layer: token_repr[layer].mean(0).clone()
+                            for layer in repr_layers
+                        }
+                    else:
+                        idx = torch.tensor(site_indices, dtype=torch.long)
+                        full_result["site_mean_representations"] = {
+                            layer: token_repr[layer][idx].mean(0).clone()
+                            for layer in repr_layers
+                        }
+
                 if "bos" in args.include:
                     full_result["bos_representations"] = {
                         layer: representations[layer][i, 0].clone()
@@ -170,6 +209,30 @@ def run(args):
                                     0).clone()
                                 for layer in repr_layers
                             }
+
+                        if "attention_mean" in args.include:
+                            for layer in repr_layers:
+                                if layer in attentions:
+                                    attn = attentions[layer][i, :, start + 1:end + 1, start + 1:end + 1]
+                                    weights = attn.mean(dim=0).mean(dim=0)
+                                    weights = weights / weights.sum()
+                                    window_result.setdefault("attention_mean_representations", {})[layer] = (
+                                        (token_repr[layer][start:end] * weights.unsqueeze(-1)).sum(0).clone()
+                                    )
+
+                        if "site_mean" in args.include:
+                            window_sites = [s - start for s in sites if start <= s < end]
+                            if len(window_sites) == 0:
+                                window_result["site_mean_representations"] = {
+                                    layer: token_repr[layer][start:end].mean(0).clone()
+                                    for layer in repr_layers
+                                }
+                            else:
+                                idx = torch.tensor(window_sites, dtype=torch.long)
+                                window_result["site_mean_representations"] = {
+                                    layer: token_repr[layer][start:end][idx].mean(0).clone()
+                                    for layer in repr_layers
+                                }
 
                         if "bos" in args.include:
                             window_result["bos_representations"] = {

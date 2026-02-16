@@ -26,14 +26,17 @@ def load_data(filename, layer_number=33, mode="mean"):
     else:
         full_data = data.get("full", {})
 
-        if mode == "bos":
-            emb = full_data.get("bos_representations", {}).get(layer_number)
+        repr_key_map = {
+            "bos": "bos_representations",
+            "mean": "mean_representations",
+            "attention_mean": "attention_mean_representations",
+            "site_mean": "site_mean_representations",
+        }
+        repr_key = repr_key_map.get(mode)
+        if repr_key:
+            emb = full_data.get(repr_key, {}).get(layer_number)
             if emb is None:
-                emb = data.get("bos_representations", {}).get(layer_number)
-        elif mode == "mean":
-            emb = full_data.get("mean_representations", {}).get(layer_number)
-            if emb is None:
-                emb = data.get("mean_representations", {}).get(layer_number)
+                emb = data.get(repr_key, {}).get(layer_number)
         else:
             emb = None
 
@@ -72,8 +75,8 @@ def main():
     parser.add_argument("output_csv", type=str, help="Output CSV file.")
     parser.add_argument("--layer", type=int, default=33,
                         help="Layer number to extract embeddings from (default: 33).")
-    parser.add_argument("--mode", choices=["bos", "mean", "windowed"], default="mean",
-                        help="Which embedding mode to extract: bos, mean, or windowed.")
+    parser.add_argument("--mode", choices=["bos", "mean", "attention_mean", "site_mean", "windowed"], default="mean",
+                        help="Which embedding mode to extract: bos, mean, attention_mean, site_mean, or windowed.")
     args = parser.parse_args()
 
     print(f"Loading data from {args.input_dir} using mode: {args.mode}...")

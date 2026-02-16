@@ -6,8 +6,12 @@ CLUSTER_MIN_SAMPLES = 5
 SEASONAL_FLU_REFERENCE_STRAIN = "A/Beijing/32/1992"
 genes = ["All"]
 T_TYPES = ["mean", "bos"]
+T36_EXTRA_TYPES = ["attention_mean", "site_mean"]
 T_MODELS_BASE = ["t33-650M", "t36-3B", "t48-15B"]
-T_MODELS_TYPED = [f"{m}-{t}" for m in T_MODELS_BASE for t in T_TYPES]
+T_MODELS_TYPED = (
+    [f"{m}-{t}" for m in T_MODELS_BASE for t in T_TYPES]
+    + [f"t36-3B-{t}" for t in T36_EXTRA_TYPES]
+)
 
 method = (
     ['pca', 't-sne', 'umap', 'mds']
@@ -668,9 +672,29 @@ rule extract_features_esm_t33_650M:
         """
 
 
+EPITOPE_SITE_FILES = [
+    "../config/h3n2/ha/wolf.json",
+    "../config/h3n2/ha/luksza.json",
+    "../config/h3n2/ha/koel.json",
+    "../config/h3n2/ha/shih.json",
+]
+
+rule make_sites:
+    input:
+        json_files = EPITOPE_SITE_FILES
+    output:
+        sites = "results/sites.txt"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python ../scripts/make_sites.py {input.json_files} \
+            -o {output.sites} --sigpep_length 16
+        """
+
 rule extract_features_esm_t36_3B:
     input:
-        fasta = "results/translations/alignment_filtered_All.fasta"
+        fasta = "results/translations/alignment_filtered_All.fasta",
+        sites_file = "results/sites.txt"
     output:
         marker = "results/embeddingt36.txt"
     benchmark:
@@ -684,7 +708,8 @@ rule extract_features_esm_t36_3B:
     shell:
         """
         python ../scripts/extract.py esm2_t36_3B_UR50D {input.fasta} {params.output_dir} \
-            --repr_layers 36 --include mean bos --cuda_device 0
+            --repr_layers 36 --include mean bos attention_mean site_mean \
+            --sites_file {input.sites_file} --cuda_device 0
         touch {output.marker}
         """
 
