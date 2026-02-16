@@ -29,8 +29,8 @@ def load_data(filename, layer_number=33, mode="mean"):
         repr_key_map = {
             "bos": "bos_representations",
             "mean": "mean_representations",
-            "attention_mean": "attention_mean_representations",
-            "site_mean": "site_mean_representations",
+            "attentionmean": "attention_mean_representations",
+            "sitemean": "site_mean_representations",
         }
         repr_key = repr_key_map.get(mode)
         if repr_key:
@@ -75,8 +75,8 @@ def main():
     parser.add_argument("output_csv", type=str, help="Output CSV file.")
     parser.add_argument("--layer", type=int, default=33,
                         help="Layer number to extract embeddings from (default: 33).")
-    parser.add_argument("--mode", choices=["bos", "mean", "attention-mean", "site-mean", "windowed"], default="mean",
-                        help="Which embedding mode to extract: bos, mean, attention-mean, site-mean, or windowed.")
+    parser.add_argument("--mode", choices=["bos", "mean", "attentionmean", "sitemean", "windowed"], default="mean",
+                        help="Which embedding mode to extract: bos, mean, attentionmean, sitemean, or windowed.")
     args = parser.parse_args()
 
     print(f"Loading data from {args.input_dir} using mode: {args.mode}...")
