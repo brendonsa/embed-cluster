@@ -2,7 +2,7 @@
 
 ## Acknowledgments
 
-Rules, scripts data configurations adapted from [blab/cartography](https://github.com/blab/cartography) 
+Rules, scripts, data and configurations adapted from [blab/cartography](https://github.com/blab/cartography) 
 
 Copyright (c) 2019 Bedford Lab.
 
