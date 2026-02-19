@@ -5,13 +5,9 @@ CLUSTER_MIN_SIZE = 10
 CLUSTER_MIN_SAMPLES = 5
 SEASONAL_FLU_REFERENCE_STRAIN = "A/Beijing/32/1992"
 genes = ["All"]
-T_TYPES = ["mean", "bos"]
-T36_EXTRA_TYPES = ["attentionmean", "sitemean"]
+T_TYPES = ["mean", "bos", "attentionmean", "sitemean"]
 T_MODELS_BASE = ["t33-650M", "t36-3B", "t48-15B"]
-T_MODELS_TYPED = (
-    [f"{m}-{t}" for m in T_MODELS_BASE for t in T_TYPES]
-    + [f"t36-3B-{t}" for t in T36_EXTRA_TYPES]
-)
+T_MODELS_TYPED = [f"{m}-{t}" for m in T_MODELS_BASE for t in T_TYPES]
 
 method = (
     ['pca', 't-sne', 'umap', 'mds']
@@ -175,7 +171,7 @@ rule seasonal_flu_test_tree:
             --alignment {input.alignment} \
             --output {output.tree} \
             --nthreads {threads} \
-            --tree-builder-args="-seed {params.random_seed}"
+            --tree-builder-args="-seed {params.random_seed} -B 100"
         """
 
 rule seasonal_flu_test_root_and_prune_tree:
@@ -656,7 +652,8 @@ rule extract_features_protbert:
 
 rule extract_features_esm_t33_650M:
     input:
-        fasta = "results/translations/alignment_filtered_All.fasta"
+        fasta = "results/translations/alignment_filtered_All.fasta",
+        sites_file = "results/sites.txt"
     output:
         marker = "results/embedding.txt"
     benchmark:
@@ -670,7 +667,8 @@ rule extract_features_esm_t33_650M:
     shell:
         """
         python ../scripts/extract.py esm2_t33_650M_UR50D {input.fasta} {params.output_dir} \
-            --repr_layers 33 --include mean bos --cuda_device 0
+            --repr_layers 33 --include mean bos attentionmean sitemean \
+            --sites_file {input.sites_file} --cuda_device 0
         touch {output.marker}
         """
 
@@ -719,7 +717,8 @@ rule extract_features_esm_t36_3B:
 
 rule extract_features_esm_t48_15B:
     input:
-        fasta = "results/translations/alignment_filtered_All.fasta"
+        fasta = "results/translations/alignment_filtered_All.fasta",
+        sites_file = "results/sites.txt"
     output:
         marker = "results/embeddingt48.txt"
     benchmark:
@@ -734,7 +733,8 @@ rule extract_features_esm_t48_15B:
     shell:
         """
         python ../scripts/extract.py esm2_t48_15B_UR50D {input.fasta} {params.output_dir} \
-            --repr_layers 48 --include mean bos --nogpu --cpu_threads {params.cpu_threads}
+            --repr_layers 48 --include mean bos attentionmean sitemean \
+            --sites_file {input.sites_file} --nogpu --cpu_threads {params.cpu_threads}
         touch {output.marker}
         """
 

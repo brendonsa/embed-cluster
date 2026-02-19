@@ -9,13 +9,9 @@ DISTANCE_THRESHOLDS = [
     15.5, 16.0, 16.5, 17.0, 17.5, 18.0, 18.5, 19.0, 19.5, 20.0,
 ]
 genes = ["All"]
-T_TYPES = ["mean", "bos"]
-T36_EXTRA_TYPES = ["attentionmean", "sitemean"]
+T_TYPES = ["mean", "bos", "attentionmean", "sitemean"]
 T_MODELS_BASE = ["t33-650M", "t36-3B", "t48-15B"]
-T_MODELS_TYPED = (
-    [f"{m}-{t}" for m in T_MODELS_BASE for t in T_TYPES]
-    + [f"t36-3B-{t}" for t in T36_EXTRA_TYPES]
-)
+T_MODELS_TYPED = [f"{m}-{t}" for m in T_MODELS_BASE for t in T_TYPES]
 method = (
     ['pca','t-sne','umap','mds']
     + expand('reduced_{method}_{metric}_{components}_{model}_{gene}',
@@ -204,7 +200,7 @@ rule seasonal_flu_training_tree:
             --alignment {input.alignment} \
             --output {output.tree} \
             --nthreads {threads} \
-            --tree-builder-args="-seed {params.random_seed}"
+            --tree-builder-args="-seed {params.random_seed} -B 100"
         """
 
 rule seasonal_flu_training_root_and_prune_tree:
@@ -315,7 +311,8 @@ rule join_fasta:
 
 rule extract_features_esm_t33_650M:
     input:
-        fasta = "results/translations/alignment_filtered_All.fasta"
+        fasta = "results/translations/alignment_filtered_All.fasta",
+        sites_file = "results/sites.txt"
     output:
         embeddings = "results/embedding.txt"
     conda: "../envs/clustering.yaml"
@@ -325,7 +322,8 @@ rule extract_features_esm_t33_650M:
     shell:
         """
         python ../scripts/extract.py esm2_t33_650M_UR50D {input.fasta} {params.output_dir} \
-            --repr_layers 33 --include mean bos --cuda_device 0
+            --repr_layers 33 --include mean bos attentionmean sitemean \
+            --sites_file {input.sites_file} --cuda_device 0
         touch {output.embeddings}
         """
 rule extract_features_prot5:
@@ -431,7 +429,8 @@ rule extract_features_esm_t36_3B:
 
 rule extract_features_esm_t48_15B:
     input:
-        fasta = "results/translations/alignment_filtered_All.fasta"
+        fasta = "results/translations/alignment_filtered_All.fasta",
+        sites_file = "results/sites.txt"
     output:
         marker = "results/embeddingt48.txt"
     benchmark:
@@ -446,7 +445,8 @@ rule extract_features_esm_t48_15B:
     shell:
         """
         python ../scripts/extract.py esm2_t48_15B_UR50D {input.fasta} {params.output_dir} \
-            --repr_layers 48 --include mean bos --nogpu --cpu_threads {params.cpu_threads}
+            --repr_layers 48 --include mean bos attentionmean sitemean \
+            --sites_file {input.sites_file} --nogpu --cpu_threads {params.cpu_threads}
         touch {output.marker}
         """
 
