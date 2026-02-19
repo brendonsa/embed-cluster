@@ -804,7 +804,7 @@ rule seasonal_flu_test_cluster_accuracy:
     conda: "../envs/clustering.yaml"
     params:
         clade_column = "clade_membership",
-        ignored_clusters = "unassigned",
+        ignored_clusters = ["unassigned", "-1"],
     shell:
         """
         python3 ../scripts/metadata_HDBSCAN.py \
@@ -836,7 +836,7 @@ rule seasonal_flu_test_concat_HDBSCAN_table:
             --output {output.metadata}
         """
 
-ALL_MODELS = T_MODELS_BASE + ["protbert", "prot5", "CARP"]
+ALL_MODELS = T_MODELS_TYPED + ["protbert", "prot5", "CARP"]
 
 rule best_per_model_HDBSCAN:
     input:

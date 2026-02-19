@@ -69,10 +69,24 @@ if __name__ == "__main__":
 
     merged = train_renamed.merge(val_renamed, on="method", how="left")
 
-    # Reorder: model, method, then interleaved train/validation metrics.
+    # Reorder: model, method, vi columns, other scoring metrics, then counts/misc.
     first_cols = ["model", "method"]
-    other_cols = [c for c in merged.columns if c not in first_cols]
-    merged = merged[first_cols + sorted(other_cols)]
+    vi_cols = [c for c in ["validation_normalized_vi", "train_normalized_vi"] if c in merged.columns]
+    score_metric_names = [
+        "adjusted_rand_score",
+        "normalized_mutual_info_score",
+        "homogeneity_completeness_v_measure",
+        "adjusted_mutual_info_score",
+    ]
+    score_cols = [
+        f"{prefix}_{m}"
+        for prefix in ["validation", "train"]
+        for m in score_metric_names
+        if f"{prefix}_{m}" in merged.columns
+    ]
+    placed = set(first_cols + vi_cols + score_cols)
+    remaining = sorted(c for c in merged.columns if c not in placed)
+    merged = merged[first_cols + vi_cols + score_cols + remaining]
 
     merged.to_csv(args.output, index=False)
     print(f"Wrote {len(merged)} rows ({len(best_methods)} best methods) to {args.output}")
