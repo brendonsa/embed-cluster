@@ -171,7 +171,7 @@ rule seasonal_flu_test_tree:
             --alignment {input.alignment} \
             --output {output.tree} \
             --nthreads {threads} \
-            --tree-builder-args="-seed {params.random_seed} -B 100"
+            --tree-builder-args="-seed {params.random_seed} -b 100"
         """
 
 rule seasonal_flu_test_root_and_prune_tree:
