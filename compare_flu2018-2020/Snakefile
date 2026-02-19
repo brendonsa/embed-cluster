@@ -454,9 +454,9 @@ MODEL_FEATURES_DIR = {
 rule join_t_models_typed:
     input:
         marker = lambda wc: (
-            "results/embedding.txt" if wc.model.startswith("t33-650M") else
-            ("results/embeddingt36.txt" if wc.model.startswith("t36-3B") else
-             "results/embeddingt48.txt")
+            rules.extract_features_esm_t33_650M.output.marker if wc.model.startswith("t33-650M") else
+            (rules.extract_features_esm_t36_3B.output.marker  if wc.model.startswith("t36-3B")   else
+             rules.extract_features_esm_t48_15B.output.marker)
         )
     output:
         csv_file = "results/embed_{model}_{gene}.csv"
@@ -477,7 +477,7 @@ rule join_t_models_typed:
 
 rule join_prot5:
     input:
-        embeddings = "results/embedding_prot5.txt"
+        marker = rules.extract_features_prot5.output.marker
     output:
         csv_file = "results/embed_prot5.csv"
     conda: "../envs/clustering.yaml"
@@ -488,7 +488,7 @@ rule join_prot5:
 
 rule join_protbert:
     input:
-        embeddings = "results/embedding_protbert.txt"
+        marker = rules.extract_features_protbert.output.marker
     output:
         csv_file = "results/embed_protbert.csv"
     conda: "../envs/clustering.yaml"
@@ -497,10 +497,9 @@ rule join_protbert:
         python ../scripts/join_data.py results/features/protbert/All {output.csv_file} --layer 0
         """
 
-
 rule join_CARP:
     input:
-        embeddings = "results/embeddingCARP.txt"
+        marker = rules.extract_features_CARP.output.marker
     output:
         csv_file = "results/embed_CARP.csv"
     conda: "../envs/clustering.yaml"

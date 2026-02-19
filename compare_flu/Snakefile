@@ -314,7 +314,7 @@ rule extract_features_esm_t33_650M:
         fasta = "results/translations/alignment_filtered_All.fasta",
         sites_file = "results/sites.txt"
     output:
-        embeddings = "results/embedding.txt"
+        marker = "results/embedding.txt"
     conda: "../envs/clustering.yaml"
     params:
         output_dir = "results/features/alignment_filtered_All"
@@ -324,7 +324,7 @@ rule extract_features_esm_t33_650M:
         python ../scripts/extract.py esm2_t33_650M_UR50D {input.fasta} {params.output_dir} \
             --repr_layers 33 --include mean bos attentionmean sitemean \
             --sites_file {input.sites_file} --cuda_device 0
-        touch {output.embeddings}
+        touch {output.marker}
         """
 rule extract_features_prot5:
     input:
@@ -452,7 +452,7 @@ rule extract_features_esm_t48_15B:
 
 rule join_t36_3B:
     input:
-        embeddings="results/embeddingt36.txt"
+        marker=rules.extract_features_esm_t36_3B.output.marker
     output:
         csv_file="results/embed_t36-3B_{gene}.csv"
     conda: "../envs/clustering.yaml"
@@ -463,7 +463,7 @@ rule join_t36_3B:
 
 rule join_t48_15B:
     input:
-        embeddings="results/embeddingt48.txt"
+        marker=rules.extract_features_esm_t48_15B.output.marker
     output:
         csv_file="results/embed_t48-15B_{gene}.csv"
     conda: "../envs/clustering.yaml"
@@ -472,23 +472,20 @@ rule join_t48_15B:
         python ../scripts/join_data.py results/features_t48-15B/alignment_filtered_{wildcards.gene} {output.csv_file} --layer 48
         """
 
-
-
-
 rule join_t33_650M:
     input:
-        embeddings="results/embedding.txt"
+        marker=rules.extract_features_esm_t33_650M.output.marker
     output:
         csv_file="results/embed_t33-650M_{gene}.csv"
     conda: "../envs/clustering.yaml"
     shell:
         """
-        python ../scripts/join_data.py results/features/alignment_filtered_{wildcards.gene} #{output.csv_file} --layer 33
+        python ../scripts/join_data.py results/features/alignment_filtered_{wildcards.gene} {output.csv_file} --layer 33
         """
 
 rule join_prot5:
     input:
-        embeddings="results/embedding.txt"
+        marker=rules.extract_features_prot5.output.marker
     output:
         csv_file="results/embed_prot5.csv"
     conda: "../envs/clustering.yaml"
@@ -497,10 +494,9 @@ rule join_prot5:
         python ../scripts/join_data.py results/features/prot5/All {output.csv_file} --layer 0
         """
 
-
 rule join_protbert:
     input:
-        embeddings="results/embedding.txt"
+        marker=rules.extract_features_protbert.output.marker
     output:
         csv_file="results/embed_protbert.csv"
     conda: "../envs/clustering.yaml"
@@ -511,7 +507,7 @@ rule join_protbert:
 
 rule join_CARP:
     input:
-        embeddings="results/embeddingCARP.txt"
+        marker=rules.extract_features_CARP.output.marker
     output:
         csv_file="results/embed_CARP.csv"
     conda: "../envs/clustering.yaml"
@@ -529,9 +525,9 @@ MODEL_FEATURES_DIR = {
 rule join_t_models_typed:
     input:
         marker = lambda wc: (
-            "results/embedding.txt"      if wc.model.startswith("t33-650M") else
-            ("results/embeddingt36.txt"  if wc.model.startswith("t36-3B")   else
-             "results/embeddingt48.txt")
+            rules.extract_features_esm_t33_650M.output.marker if wc.model.startswith("t33-650M") else
+            (rules.extract_features_esm_t36_3B.output.marker  if wc.model.startswith("t36-3B")   else
+             rules.extract_features_esm_t48_15B.output.marker)
         )
     output:
         csv_file = "results/embed_{model}_{gene}.csv"  
