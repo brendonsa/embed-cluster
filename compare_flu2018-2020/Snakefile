@@ -166,13 +166,16 @@ rule seasonal_flu_test_tree:
     output:
         tree = "results/tree_raw.nwk",
     conda: "../envs/clustering.yaml"
-    threads: 4
+    threads: 1
+    params:
+        random_seed = RANDOM_SEED,
     shell:
         """
         augur tree \
             --alignment {input.alignment} \
             --output {output.tree} \
-            --nthreads {threads}
+            --nthreads {threads} \
+            --tree-builder-args="-seed {params.random_seed}"
         """
 
 rule seasonal_flu_test_root_and_prune_tree:
