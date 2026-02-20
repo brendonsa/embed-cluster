@@ -84,7 +84,8 @@ def run(args):
             raise ValueError("--sites_file is required when using site-mean")
         with open(args.sites_file) as f:
             text = f.read().strip()
-        sites = [int(s.strip()) for s in text.replace('\n', ',').split(',') if s.strip()]
+        sites = [int(s.strip())
+                 for s in text.replace('\n', ',').split(',') if s.strip()]
         print(f"Site-informed mode: using {len(sites)} sites: {sites}")
 
     return_contacts = "contacts" in args.include
@@ -146,18 +147,22 @@ def run(args):
                     for layer in repr_layers:
                         if layer in attentions:
                             # attentions[layer][i] shape: (heads, seq_len, seq_len)
-                            attn = attentions[layer][i, :, 1:seq_len + 1, 1:seq_len + 1]
+                            attn = attentions[layer][i, :,
+                                                     1:seq_len + 1, 1:seq_len + 1]
                             # Average across heads and source positions to get per-token importance
-                            weights = attn.mean(dim=0).mean(dim=0)  # (seq_len,)
+                            weights = attn.mean(dim=0).mean(
+                                dim=0)  # (seq_len,)
                             weights = weights / weights.sum()
                             full_result["attention_mean_representations"][layer] = (
-                                (token_repr[layer] * weights.unsqueeze(-1)).sum(0).clone()
+                                (token_repr[layer] *
+                                 weights.unsqueeze(-1)).sum(0).clone()
                             )
 
                 if "sitemean" in args.include:
                     site_indices = [s for s in sites if s < seq_len]
                     if len(site_indices) == 0:
-                        print(f"Warning: no valid sites for {label} (seq_len={seq_len}), falling back to full mean")
+                        print(
+                            f"Warning: no valid sites for {label} (seq_len={seq_len}), falling back to full mean")
                         full_result["site_mean_representations"] = {
                             layer: token_repr[layer].mean(0).clone()
                             for layer in repr_layers
@@ -213,24 +218,30 @@ def run(args):
                         if "attentionmean" in args.include:
                             for layer in repr_layers:
                                 if layer in attentions:
-                                    attn = attentions[layer][i, :, start + 1:end + 1, start + 1:end + 1]
+                                    attn = attentions[layer][i, :,
+                                                             start + 1:end + 1, start + 1:end + 1]
                                     weights = attn.mean(dim=0).mean(dim=0)
                                     weights = weights / weights.sum()
                                     window_result.setdefault("attention_mean_representations", {})[layer] = (
-                                        (token_repr[layer][start:end] * weights.unsqueeze(-1)).sum(0).clone()
+                                        (token_repr[layer][start:end] *
+                                         weights.unsqueeze(-1)).sum(0).clone()
                                     )
 
                         if "sitemean" in args.include:
-                            window_sites = [s - start for s in sites if start <= s < end]
+                            window_sites = [
+                                s - start for s in sites if start <= s < end]
                             if len(window_sites) == 0:
                                 window_result["site_mean_representations"] = {
-                                    layer: token_repr[layer][start:end].mean(0).clone()
+                                    layer: token_repr[layer][start:end].mean(
+                                        0).clone()
                                     for layer in repr_layers
                                 }
                             else:
-                                idx = torch.tensor(window_sites, dtype=torch.long)
+                                idx = torch.tensor(
+                                    window_sites, dtype=torch.long)
                                 window_result["site_mean_representations"] = {
-                                    layer: token_repr[layer][start:end][idx].mean(0).clone()
+                                    layer: token_repr[layer][start:end][idx].mean(
+                                        0).clone()
                                     for layer in repr_layers
                                 }
 
