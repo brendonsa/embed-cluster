@@ -173,15 +173,15 @@ rule seasonal_flu_training_remove_reference_from_embedding_alignment:
 
 rule seasonal_flu_training_create_distance_matrix:
     input:
-        alignment = "results/aligned_sequences.fasta",
+        alignment = rules.seasonal_flu_test_align.output.alignment,
     output:
-        output = "results/distance_matrix.csv",
+        distance_matrix = "results/distance_matrix.csv",
     conda: "../envs/clustering.yaml"
     shell:
         """
         pathogen-distance \
             --alignment {input.alignment} \
-            --output {output.output}
+            --output {output.distance_matrix}
         """
 
 
@@ -224,7 +224,7 @@ rule seasonal_flu_training_root_and_prune_tree:
 rule seasonal_flu_training_refine:
     input:
         tree = "results/rooted_tree_raw.nwk",
-        alignment = "results/aligned_sequences.fasta",
+        alignment = rules.seasonal_flu_test_align.output.alignment,
         metadata = "results/filtered_metadata.tsv",
     output:
         tree = "results/tree.nwk",
@@ -311,7 +311,7 @@ rule join_fasta:
 
 rule extract_features_esm_t33_650M:
     input:
-        fasta = "results/translations/alignment_filtered_All.fasta",
+        fasta = rules.join_fasta.output.fasta,
         sites_file = "results/sites.txt"
     output:
         marker = "results/embedding.txt"
@@ -328,7 +328,7 @@ rule extract_features_esm_t33_650M:
         """
 rule extract_features_prot5:
     input:
-        fasta="results/translations/alignment_filtered_All.fasta"
+        fasta=rules.join_fasta.output.fasta
     output:
         marker="results/embedding_prot5.txt"
     conda: "../envs/clustering.yaml"
@@ -351,7 +351,7 @@ rule extract_features_prot5:
 
 rule extract_features_protbert:
     input:
-        fasta="results/translations/alignment_filtered_All.fasta"
+        fasta=rules.join_fasta.output.fasta
     output:
         marker="results/embedding_protbert.txt"
     conda: "../envs/clustering.yaml"
@@ -375,7 +375,7 @@ rule extract_features_protbert:
 
 rule extract_features_CARP:
     input:
-        fasta = "results/translations/alignment_filtered_All.fasta"
+        fasta = rules.join_fasta.output.fasta
     output:
         marker = "results/embeddingCARP.txt"
     conda: "../envs/clustering.yaml"
@@ -410,7 +410,7 @@ rule make_sites:
 
 rule extract_features_esm_t36_3B:
     input:
-        fasta = "results/translations/alignment_filtered_All.fasta",
+        fasta = rules.join_fasta.output.fasta,
         sites_file = "results/sites.txt"
     output:
         marker = "results/embeddingt36.txt"
@@ -429,7 +429,7 @@ rule extract_features_esm_t36_3B:
 
 rule extract_features_esm_t48_15B:
     input:
-        fasta = "results/translations/alignment_filtered_All.fasta",
+        fasta = rules.join_fasta.output.fasta,
         sites_file = "results/sites.txt"
     output:
         marker = "results/embeddingt48.txt"
@@ -663,7 +663,7 @@ rule seasonal_flu_training_create_table_from_tree_and_node_data:
 rule seasonal_flu_training_embed_pca:
     message: "Creating the embedding for PCA"
     input:
-        alignment = "results/aligned_sequences.fasta",
+        alignment = rules.seasonal_flu_test_align.output.alignment,
         parameters = "../simulations/influenza-like/no-reassortment/pca_parameters.csv",
     output:
         dataframe = "results/embed_pca.csv",
@@ -684,8 +684,8 @@ rule seasonal_flu_training_embed_pca:
 rule seasonal_flu_training_embed_mds:
     message: "Creating the embedding for MDS"
     input:
-        alignment = "results/aligned_sequences.fasta",
-        distance_matrix = "results/distance_matrix.csv",
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+        distance_matrix = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
         parameters = "../simulations/influenza-like/no-reassortment/mds_parameters.csv",
     output:
         dataframe = "results/embed_mds.csv",
@@ -706,8 +706,8 @@ rule seasonal_flu_training_embed_mds:
 rule seasonal_flu_training_embed_tsne:
     message: "Creating the embedding for t-SNE"
     input:
-        alignment = "results/aligned_sequences.fasta",
-        distance_matrix = "results/distance_matrix.csv",
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+        distance_matrix = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
         parameters = "../simulations/influenza-like/no-reassortment/t-sne_parameters.csv",
     output:
         dataframe = "results/embed_t-sne.csv",
@@ -729,8 +729,8 @@ rule seasonal_flu_training_embed_tsne:
 rule seasonal_flu_training_embed_umap:
     message: "Creating the embedding for UMAP"
     input:
-        alignment = "results/aligned_sequences.fasta",
-        distance_matrix = "results/distance_matrix.csv",
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+        distance_matrix = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
         parameters = "../simulations/influenza-like/no-reassortment/umap_parameters.csv",
     output:
         dataframe = "results/embed_umap.csv",
@@ -774,7 +774,7 @@ rule seasonal_flu_training_cluster:
 
 rule seasonal_flu_training_cluster_distances:
     input:
-        distances="results/distance_matrix.csv",
+        distances=rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
     output:
         dataframe="results/cluster/genetic/{distance_threshold}.csv",
         figure="results/cluster/genetic/{distance_threshold}.pdf",
@@ -797,7 +797,7 @@ rule seasonal_flu_training_cluster_distances:
 
 rule seasonal_flu_training_get_table_of_tips:
     input:
-        metadata="results/table.tsv",
+        metadata=rules.seasonal_flu_training_create_table_from_tree_and_node_data.output.table,
     output:
         metadata="results/table_of_tips.tsv",
     conda: "../envs/clustering.yaml"
@@ -809,7 +809,7 @@ rule seasonal_flu_training_get_table_of_tips:
 
 rule seasonal_flu_training_cluster_accuracy:
     input:
-        metadata = "results/table_of_tips.tsv",
+        metadata = rules.get_table_of_tips.output.metadata,
         clusters="results/cluster/{method}/{distance_threshold}.csv",
     output:
         dataframe="results/cluster_accuracy/{method}/{distance_threshold}.csv",
@@ -837,14 +837,7 @@ rule seasonal_flu_training_concat_cluster_accuracy:
     params:
         column = "normalized_vi",
     conda: "../envs/clustering.yaml"
-    shell:
-        """
-        python3 ../scripts/concatenate_tables.py \
-            --tables {input.accuracies} \
-            --separator ',' \
-            --sort-by {params.column} \
-            --output {output.metadata}
-        """
+    script: "../scripts/concat_cluster_accuracy.py"
 
 rule get_optimal_cluster_parameters_and_accuracies:
     input:
@@ -887,7 +880,7 @@ rule cluster_with_optimal_parameters:
 
 rule cluster_distances_with_optimal_parameters:
     input:
-        distances="results/distance_matrix.csv",
+        distances=rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
         parameters="results/optimal_cluster_accuracy_and_parameters.csv",
     output:
         clustered="results/cluster_embed_genetic.csv",

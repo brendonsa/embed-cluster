@@ -97,8 +97,8 @@ rule seasonal_flu_test_parse:
 
 rule seasonal_flu_test_filter:
     input:
-        sequences = "results/sequences.fasta",
-        metadata = "results/metadata.tsv",
+        sequences = rules.seasonal_flu_test_parse.output.sequences,
+        metadata = rules.seasonal_flu_test_parse.output.metadata,
         exclude = seasonal_flu_test_files.dropped_strains
     output:
         sequences = "results/filtered.fasta",
@@ -145,7 +145,7 @@ rule seasonal_flu_test_align:
 
 rule seasonal_flu_test_remove_reference_from_embedding_alignment:
     input:
-        alignment = "results/aligned.fasta",
+        alignment = rules.seasonal_flu_test_align.output.alignment,
     output:
         alignment = "results/aligned_sequences.fasta",
     conda: "../envs/clustering.yaml"
@@ -158,7 +158,7 @@ rule seasonal_flu_test_remove_reference_from_embedding_alignment:
 
 rule seasonal_flu_test_tree:
     input:
-        alignment = "results/aligned.fasta",
+        alignment = rules.seasonal_flu_test_align.output.alignment,
     output:
         tree = "results/tree_raw.nwk",
     conda: "../envs/clustering.yaml"
@@ -176,7 +176,7 @@ rule seasonal_flu_test_tree:
 
 rule seasonal_flu_test_root_and_prune_tree:
     input:
-        tree = "results/tree_raw.nwk",
+        tree = rules.seasonal_flu_test_tree.output.tree,
     output:
         tree = "results/rooted_tree_raw.nwk",
     conda: "../envs/clustering.yaml"
@@ -194,9 +194,9 @@ rule seasonal_flu_test_root_and_prune_tree:
 
 rule seasonal_flu_test_refine:
     input:
-        tree = "results/rooted_tree_raw.nwk",
-        alignment = "results/aligned_sequences.fasta",
-        metadata = "results/filtered_metadata.tsv",
+        tree = rules.seasonal_flu_test_root_and_prune_tree.output.tree
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+        metadata = rules.seasonal_flu_test_filter.output.metadata,
     output:
         tree = "results/tree.nwk",
         node_data = "results/branch_lengths.json",
@@ -219,8 +219,8 @@ rule seasonal_flu_test_refine:
 
 rule seasonal_flu_test_ancestral:
     input:
-        tree = "results/tree.nwk",
-        alignment = "results/aligned_sequences.fasta",
+        tree = rules.seasonal_flu_test_refine.output.tree,
+        alignment = rules.seasonal_flu_test_align.output.alignment,
     output:
         node_data = "results/nt_muts.json",
         sequences = "results/aligned_ancestral.fasta"
@@ -235,27 +235,6 @@ rule seasonal_flu_test_ancestral:
             --output-node-data {output.node_data} \
             --output-sequences {output.sequences} \
             --inference {params.inference}
-        """
-rule seasonal_flu_training_create_table_from_tree_and_node_data:
-    input:
-        tree = "results/tree.nwk",
-        clades = "results/clades.json",
-        branch_lengths = "results/branch_lengths.json",
-    output:
-        table = "results/table.tsv",
-    params:
-        attributes = "clade_membership branch_length divergence",
-        mutation_length_attribute = "branch_length",
-    conda: "../envs/clustering.yaml"
-    shell:
-        """
-        python3 ../scripts/node_data_to_table.py \
-            --tree {input.tree} \
-            --node-data {input.clades} {input.branch_lengths} \
-            --include-internal-nodes \
-            --attributes {params.attributes} \
-            --mutation-length-attribute {params.mutation_length_attribute} \
-            --output {output.table}
         """
 
 rule seasonal_flu_test_translate:
@@ -294,22 +273,45 @@ rule seasonal_flu_test_clades:
             --output {output.clade_data}
         """
 
+rule seasonal_flu_training_create_table_from_tree_and_node_data:
+    input:
+        tree = rules.seasonal_flu_test_refine.output.tree,
+        clades = rules.seasonal_flu_test_clades.output.clade_data,
+        branch_lengths = rules.seasonal_flu_test_refine.output.node_data,
+    output:
+        table = "results/table.tsv",
+    params:
+        attributes = "clade_membership branch_length divergence",
+        mutation_length_attribute = "branch_length",
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python3 ../scripts/node_data_to_table.py \
+            --tree {input.tree} \
+            --node-data {input.clades} {input.branch_lengths} \
+            --include-internal-nodes \
+            --attributes {params.attributes} \
+            --mutation-length-attribute {params.mutation_length_attribute} \
+            --output {output.table}
+        """
+
+
 rule seasonal_flu_test_create_distance_matrix:
     input:
-        alignment = "results/aligned_sequences.fasta"
+        alignment = rules.seasonal_flu_test_align.output.alignment,
     output:
-        output = "results/distance_matrix.csv"
+        distance_matrix = "results/distance_matrix.csv"
     conda: "../envs/clustering.yaml"
     shell:
         """
         pathogen-distance \
             --alignment {input.alignment} \
-            --output {output.output}
+            --output {output.distance_matrix}
         """
 
 rule seasonal_flu_test_embed_pca:
     input:
-        alignment = "results/aligned_sequences.fasta",
+        alignment = rules.seasonal_flu_test_align.output.alignment,
         parameters = "../simulations/influenza-like/no-reassortment/pca_parameters.csv",
     output:
         dataframe = "results/embed_pca.csv",
@@ -333,8 +335,8 @@ rule seasonal_flu_test_embed_pca:
 
 rule seasonal_flu_test_embed_mds:
     input:
-        alignment = "results/aligned_sequences.fasta",
-        distance_matrix = "results/distance_matrix.csv",
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+        distance_matrix = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
         parameters = "../simulations/influenza-like/no-reassortment/mds_parameters.csv",
     output:
         dataframe = "results/embed_mds.csv",
@@ -356,8 +358,8 @@ rule seasonal_flu_test_embed_mds:
 
 rule seasonal_flu_test_embed_tsne:
     input:
-        alignment = "results/aligned_sequences.fasta",
-        distance_matrix = "results/distance_matrix.csv",
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+        distance_matrix = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
         parameters = "../simulations/influenza-like/no-reassortment/t-sne_parameters.csv",
     output:
         dataframe = "results/embed_t-sne.csv",
@@ -380,8 +382,8 @@ rule seasonal_flu_test_embed_tsne:
 
 rule seasonal_flu_test_embed_umap:
     input:
-        alignment = "results/aligned_sequences.fasta",
-        distance_matrix = "results/distance_matrix.csv",
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+        distance_matrix = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
         parameters = "../simulations/influenza-like/no-reassortment/umap_parameters.csv",
     output:
         dataframe = "results/embed_umap.csv",
@@ -444,6 +446,170 @@ rule join_fasta:
         """
         python ../scripts/join_fasta.py {input.fasta_files} {output.fasta}
         """
+rule extract_features_CARP:
+    input:
+        fasta = rules.join_fasta.output.fasta
+    output:
+        marker = "results/embeddingCARP.txt"
+    benchmark:
+        "benchmarks/plm_extract_CARP.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1,
+        exclusive = 1
+    params:
+        output_dir = "results/features_CARP/alignment_filtered_All"
+    shell:
+        """
+        python ../scripts/extract_CARP.py carp_640M {input.fasta} {params.output_dir} \
+            --include mean --repr_layers 33
+        touch {output.marker}
+        """
+
+rule extract_features_prot5:
+    input:
+        fasta = rules.join_fasta.output.fasta
+    output:
+        marker = "results/embedding_prot5.txt"
+    benchmark:
+        "benchmarks/plm_extract_prot5.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1,
+        exclusive = 1
+    params:
+        script = "../scripts/extract_prott5.py",
+        output_dir = "results/features/prot5/All",
+        model = "Rostlab/prot_t5_xl_uniref50",
+        device = "cuda"
+    shell:
+        """
+        python {params.script} \
+            --fasta {input.fasta} \
+            --output-dir {params.output_dir} \
+            --model-name {params.model} \
+            --device {params.device}
+        touch {output.marker}
+        """
+
+rule extract_features_protbert:
+    input:
+        fasta = rules.join_fasta.output.fasta
+    output:
+        marker = "results/embedding_protbert.txt"
+    benchmark:
+        "benchmarks/plm_extract_protbert.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1,
+        exclusive = 1
+    params:
+        script = "../scripts/extract_protbert.py",
+        output_dir = "results/features/protbert/All",
+        model = "Rostlab/prot_bert_bfd",
+        device = "cuda"
+    shell:
+        """
+        python {params.script} \
+            --fasta {input.fasta} \
+            --output-dir {params.output_dir} \
+            --model-name {params.model} \
+            --device {params.device}
+        touch {output.marker}
+        """
+
+EPITOPE_SITE_FILES = [
+    "../config/h3n2/ha/wolf.json",
+    "../config/h3n2/ha/luksza.json",
+    "../config/h3n2/ha/koel.json",
+    "../config/h3n2/ha/shih.json",
+]
+
+rule make_sites:
+    input:
+        json_files = EPITOPE_SITE_FILES
+    output:
+        sites = "results/sites.txt"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python ../scripts/make_sites.py {input.json_files} \
+            -o {output.sites} --sigpep_length 16
+        """
+
+
+
+rule extract_features_esm_t33_650M:
+    input:
+        fasta = rules.join_fasta.output.fasta,
+        sites_file = rules.make_sites.output.sites,
+    output:
+        marker = "results/embedding.txt"
+    benchmark:
+        "benchmarks/plm_extract_t33-650M.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1,
+        exclusive = 1
+    params:
+        output_dir = "results/features/alignment_filtered_All"
+    shell:
+        """
+        python ../scripts/extract.py esm2_t33_650M_UR50D {input.fasta} {params.output_dir} \
+            --repr_layers 33 --include mean bos attentionmean sitemean \
+            --sites_file {input.sites_file} --cuda_device 0
+        touch {output.marker}
+        """
+
+
+rule extract_features_esm_t36_3B:
+    input:
+        fasta = rules.join_fasta.output.fasta,
+        sites_file = rules.make_sites.output.sites,
+    output:
+        marker = "results/embeddingt36.txt"
+    benchmark:
+        "benchmarks/plm_extract_t36-3B.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1,
+        exclusive = 1
+    params:
+        output_dir = "results/features_t36-3B/alignment_filtered_All"
+    shell:
+        """
+        python ../scripts/extract.py esm2_t36_3B_UR50D {input.fasta} {params.output_dir} \
+            --repr_layers 36 --include mean bos attentionmean sitemean \
+            --sites_file {input.sites_file} --cuda_device 0
+        touch {output.marker}
+        """
+
+
+rule extract_features_esm_t48_15B:
+    input:
+        fasta = rules.join_fasta.output.fasta,
+        sites_file = rules.make_sites.output.sites,
+    output:
+        marker = "results/embeddingt48.txt"
+    benchmark:
+        "benchmarks/plm_extract_t48-15B.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1,
+        exclusive = 1
+    params:
+        output_dir = "results/features_t48-15B/alignment_filtered_All",
+        cpu_threads = CPU_THREADS
+    shell:
+        """
+        python ../scripts/extract.py esm2_t48_15B_UR50D {input.fasta} {params.output_dir} \
+            --repr_layers 48 --include mean bos attentionmean sitemean \
+            --sites_file {input.sites_file} --nogpu --cpu_threads {params.cpu_threads}
+        touch {output.marker}
+        """
+
+
+
 
 MODEL_FEATURES_DIR = {
     "t33-650M": "results/features",
@@ -508,9 +674,11 @@ rule join_CARP:
         python ../scripts/join_data.py results/features_CARP/alignment_filtered_All {output.csv_file} --layer 33
         """
 
+
+
 rule reduce_dimension_prot5:
     input:
-        csv_file = "results/embed_prot5.csv"
+        csv_file = rules.join_prot5.output.csv_file,
     output:
         csv_file = "results/embed_reduced_{method}_{metric}_{components}_prot5.csv"
     conda: "../envs/clustering.yaml"
@@ -526,7 +694,7 @@ rule reduce_dimension_prot5:
 
 rule reduce_dimension_protbert:
     input:
-        csv_file = "results/embed_protbert.csv"
+        csv_file = rules.join_protbert.output.csv_file
     output:
         csv_file = "results/embed_reduced_{method}_{metric}_{components}_protbert.csv"
     conda: "../envs/clustering.yaml"
@@ -542,7 +710,7 @@ rule reduce_dimension_protbert:
 
 rule reduce_dimension_CARP:
     input:
-        csv_file = "results/embed_CARP.csv"
+        csv_file = rules.join_CARP.output.csv_file,
     output:
         csv_file = "results/embed_reduced_{method}_{metric}_{components}_CARP.csv"
     conda: "../envs/clustering.yaml"
@@ -555,27 +723,6 @@ rule reduce_dimension_CARP:
         """
         python ../scripts/reduce_2d.py {input.csv_file} {wildcards.method} {output.csv_file} --metric {wildcards.metric} --n_components {wildcards.components} --random-seed {params.random_seed}
         """
-
-rule extract_features_CARP:
-    input:
-        fasta = "results/translations/alignment_filtered_All.fasta"
-    output:
-        marker = "results/embeddingCARP.txt"
-    benchmark:
-        "benchmarks/plm_extract_CARP.txt"
-    conda: "../envs/clustering.yaml"
-    resources:
-        gpu = 1,
-        exclusive = 1
-    params:
-        output_dir = "results/features_CARP/alignment_filtered_All"
-    shell:
-        """
-        python ../scripts/extract_CARP.py carp_640M {input.fasta} {params.output_dir} \
-            --include mean --repr_layers 33
-        touch {output.marker}
-        """
-
 
 rule reduce_dimension:
     input:
@@ -596,151 +743,9 @@ rule reduce_dimension:
         python ../scripts/reduce_2d.py {input.csv_file} {wildcards.method} {output.csv_file} --metric {wildcards.metric} --n_components {wildcards.components} --random-seed {params.random_seed}
         """
 
-rule extract_features_prot5:
-    input:
-        fasta = "results/translations/alignment_filtered_All.fasta"
-    output:
-        marker = "results/embedding_prot5.txt"
-    benchmark:
-        "benchmarks/plm_extract_prot5.txt"
-    conda: "../envs/clustering.yaml"
-    resources:
-        gpu = 1,
-        exclusive = 1
-    params:
-        script = "../scripts/extract_prott5.py",
-        output_dir = "results/features/prot5/All",
-        model = "Rostlab/prot_t5_xl_uniref50",
-        device = "cuda"
-    shell:
-        """
-        python {params.script} \
-            --fasta {input.fasta} \
-            --output-dir {params.output_dir} \
-            --model-name {params.model} \
-            --device {params.device}
-        touch {output.marker}
-        """
-
-rule extract_features_protbert:
-    input:
-        fasta = "results/translations/alignment_filtered_All.fasta"
-    output:
-        marker = "results/embedding_protbert.txt"
-    benchmark:
-        "benchmarks/plm_extract_protbert.txt"
-    conda: "../envs/clustering.yaml"
-    resources:
-        gpu = 1,
-        exclusive = 1
-    params:
-        script = "../scripts/extract_protbert.py",
-        output_dir = "results/features/protbert/All",
-        model = "Rostlab/prot_bert_bfd",
-        device = "cuda"
-    shell:
-        """
-        python {params.script} \
-            --fasta {input.fasta} \
-            --output-dir {params.output_dir} \
-            --model-name {params.model} \
-            --device {params.device}
-        touch {output.marker}
-        """
-
-
-rule extract_features_esm_t33_650M:
-    input:
-        fasta = "results/translations/alignment_filtered_All.fasta",
-        sites_file = "results/sites.txt"
-    output:
-        marker = "results/embedding.txt"
-    benchmark:
-        "benchmarks/plm_extract_t33-650M.txt"
-    conda: "../envs/clustering.yaml"
-    resources:
-        gpu = 1,
-        exclusive = 1
-    params:
-        output_dir = "results/features/alignment_filtered_All"
-    shell:
-        """
-        python ../scripts/extract.py esm2_t33_650M_UR50D {input.fasta} {params.output_dir} \
-            --repr_layers 33 --include mean bos attentionmean sitemean \
-            --sites_file {input.sites_file} --cuda_device 0
-        touch {output.marker}
-        """
-
-
-EPITOPE_SITE_FILES = [
-    "../config/h3n2/ha/wolf.json",
-    "../config/h3n2/ha/luksza.json",
-    "../config/h3n2/ha/koel.json",
-    "../config/h3n2/ha/shih.json",
-]
-
-rule make_sites:
-    input:
-        json_files = EPITOPE_SITE_FILES
-    output:
-        sites = "results/sites.txt"
-    conda: "../envs/clustering.yaml"
-    shell:
-        """
-        python ../scripts/make_sites.py {input.json_files} \
-            -o {output.sites} --sigpep_length 16
-        """
-
-rule extract_features_esm_t36_3B:
-    input:
-        fasta = "results/translations/alignment_filtered_All.fasta",
-        sites_file = "results/sites.txt"
-    output:
-        marker = "results/embeddingt36.txt"
-    benchmark:
-        "benchmarks/plm_extract_t36-3B.txt"
-    conda: "../envs/clustering.yaml"
-    resources:
-        gpu = 1,
-        exclusive = 1
-    params:
-        output_dir = "results/features_t36-3B/alignment_filtered_All"
-    shell:
-        """
-        python ../scripts/extract.py esm2_t36_3B_UR50D {input.fasta} {params.output_dir} \
-            --repr_layers 36 --include mean bos attentionmean sitemean \
-            --sites_file {input.sites_file} --cuda_device 0
-        touch {output.marker}
-        """
-
-
-rule extract_features_esm_t48_15B:
-    input:
-        fasta = "results/translations/alignment_filtered_All.fasta",
-        sites_file = "results/sites.txt"
-    output:
-        marker = "results/embeddingt48.txt"
-    benchmark:
-        "benchmarks/plm_extract_t48-15B.txt"
-    conda: "../envs/clustering.yaml"
-    resources:
-        gpu = 1,
-        exclusive = 1
-    params:
-        output_dir = "results/features_t48-15B/alignment_filtered_All",
-        cpu_threads = CPU_THREADS
-    shell:
-        """
-        python ../scripts/extract.py esm2_t48_15B_UR50D {input.fasta} {params.output_dir} \
-            --repr_layers 48 --include mean bos attentionmean sitemean \
-            --sites_file {input.sites_file} --nogpu --cpu_threads {params.cpu_threads}
-        touch {output.marker}
-        """
-
-
 rule seasonal_flu_training_get_table_of_tips:
     input:
-        metadata = "results/table.tsv",
+        metadata = rules.seasonal_flu_training_create_table_from_tree_and_node_data.output.table,
     output:
         metadata = "results/table_of_tips.tsv",
     conda: "../envs/clustering.yaml"
@@ -776,7 +781,7 @@ rule seasonal_flu_test_cluster_with_optimal_parameters:
 
 rule seasonal_flu_test_cluster_distances_with_optimal_parameters:
     input:
-        distances = "results/distance_matrix.csv",
+        distances = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
         parameters = "../compare_flu/results/optimal_cluster_accuracy_and_parameters.csv",
     output:
         clustered = "results/cluster_embed_genetic.csv",
@@ -799,7 +804,7 @@ rule seasonal_flu_test_cluster_distances_with_optimal_parameters:
 
 rule seasonal_flu_test_cluster_accuracy:
     input:
-        metadata = "results/table_of_tips.tsv",
+        metadata = rules.get_table_of_tips.output.metadata,
         embedding = "results/cluster_embed_{method}.csv",
     output:
         dataframe = "results/cluster_accuracy_{method}.csv",
@@ -843,7 +848,7 @@ ALL_MODELS = T_MODELS_TYPED + ["protbert", "prot5", "CARP"]
 rule best_per_model_HDBSCAN:
     input:
         train = "../compare_flu/results/full_HDBSCAN_metadata.csv",
-        validation = "results/full_HDBSCAN_metadata.csv",
+        validation = rules.seasonal_flu_test_concat_HDBSCAN_table.output.metadata,
     output:
         metadata = "results/best_per_model_HDBSCAN.csv",
     params:
