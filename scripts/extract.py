@@ -184,7 +184,7 @@ def run(args):
                     full_result["contacts"] = contacts[i,
                                                        :seq_len, :seq_len].clone()
 
-                if return_attentions:
+                if "attentions" in args.include:
                     full_result["attentions"] = {
                         layer: attentions[layer][i, :,
                                                  1:seq_len + 1, 1:seq_len + 1].clone()
@@ -255,7 +255,7 @@ def run(args):
                             window_result["contacts"] = contacts[i,
                                                                  start:end, start:end].clone()
 
-                        if return_attentions:
+                        if 'attentions' in args.include:
                             window_result["attentions"] = {
                                 layer: attentions[layer][i, :, start +
                                                          1:end + 1, start + 1:end + 1].clone()
