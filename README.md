@@ -86,3 +86,14 @@ Rules, scripts, data and configurations adapted from [blab/cartography](https://
 Copyright (c) 2019 Bedford Lab.
 
 > Nanduri, S., Black, A., Bedford, T., & Huddleston, J. (2024). Dimensionality reduction distills complex evolutionary relationships in seasonal influenza and SARS-CoV-2. *Virus Evolution*, veae087. https://doi.org/10.1093/ve/veae087
+
+### Modifications done
+The [blab/cartography](https://github.com/blab/cartography) results we report in our paper can be different than the ones reported in the [blab/cartography](https://doi.org/10.1093/ve/veae087).
+
+The pipeline was not modified if not needed, to keep the baseline results as comparable as possible. But some modifications had to be applied.
+
+In the original pipeline the tree generating ran on multiple threads, thus making the tree generation non-deterministic (even when fixing a seed). We fixed the seed, set the thread number to 1, and to make labels more reliable we ran the algorithm with a bootstrap option.
+
+The value of undefined cluster from HDBSCAN was not set to correct one. We set it to correct one, now it shows the possible outlier numbers.
+
+
