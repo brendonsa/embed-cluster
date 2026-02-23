@@ -132,7 +132,7 @@ rule seasonal_flu_test_align:
     output:
         alignment = "results/aligned.fasta",
     conda: "../envs/clustering.yaml"
-    threads: 4
+    threads: CPU_THREADS
     shell:
         """
         augur align \
