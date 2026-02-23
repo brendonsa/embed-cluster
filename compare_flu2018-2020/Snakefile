@@ -822,7 +822,7 @@ rule seasonal_flu_test_concat_HDBSCAN_table:
             --output {output.metadata}
         """
 
-ALL_MODELS = T_MODELS_TYPED + ["protbert", "prot5", "CARP"]
+ALL_MODELS = T_MODELS_TYPED + ["protbert", "prot5", "CARP", "pca", "t-sne", "umap", "mds"]
 
 rule best_per_model_HDBSCAN:
     input:
