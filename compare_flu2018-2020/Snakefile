@@ -194,7 +194,7 @@ rule seasonal_flu_test_root_and_prune_tree:
 
 rule seasonal_flu_test_refine:
     input:
-        tree = rules.seasonal_flu_test_root_and_prune_tree.output.tree
+        tree = rules.seasonal_flu_test_root_and_prune_tree.output.tree,
         alignment = rules.seasonal_flu_test_align.output.alignment,
         metadata = rules.seasonal_flu_test_filter.output.metadata,
     output:
