@@ -371,26 +371,6 @@ rule seasonal_flu_test_embed_umap:
             umap
         """
 
-rule seasonal_flu_testing_translate:
-    message: "Translating amino acid sequences (with per-gene FASTA output)"
-    input:
-        tree = rules.seasonal_flu_test_refine.output.tree,
-        node_data = rules.seasonal_flu_test_ancestral.output.node_data,
-        reference = seasonal_flu_test_files.reference
-    output:
-        node_data = "results/aa_muts.json",
-        translations = expand(
-            "results/translations/alignment_{gene}.fasta", gene=["HA1", "HA2", "SigPep"])
-    conda: "../envs/clustering.yaml"
-    shell:
-        """
-        augur translate \
-            --tree {input.tree} \
-            --ancestral-sequences {input.node_data} \
-            --reference-sequence {input.reference} \
-            --output {output.node_data}\
-            --alignment-output "results/translations/alignment_%GENE.fasta"
-        """
 
 rule filter_fasta:
     input:
