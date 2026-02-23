@@ -26,12 +26,19 @@ mamba env create -f envs/clustering.yaml
 
 ```
 clustering/
-├── compare_flu/                # Training pipeline (2016-2018 sequences)
+├── compare_flu/                # Training pipeline (2016-2018, RANDOM_SEED=314159)
 │   ├── Snakefile
 │   └── profile/config.yaml
-├── compare_flu2018-2020/       # Validation pipeline (2018-2020 sequences)
+├── compare_flu2018-2020/       # Test pipeline (2018-2020, RANDOM_SEED=314159)
 │   ├── Snakefile
 │   └── profile/config.yaml
+├── compare_flu_seed{2,3,4}/           # Robustness replicates — same pipeline as
+├── compare_flu2018-2020_seed{2,3,4}/  # above but with different subsampling seeds:
+│                                      #   seed2 = 271828 (e)
+│                                      #   seed3 = 161803 (φ)
+│                                      #   seed4 = 141421 (√2)
+│                                      # These replicates use optimal clustering
+│                                      # parameters from the original training run.
 ├── config/                     # Reference sequences, clades, and augur configs
 ├── data/                       # Input FASTA (NCBI H3N2 HA)
 ├── envs/                       # Conda environment definition
@@ -56,16 +63,16 @@ This will:
 5. Cluster with HDBSCAN across distance thresholds and evaluate against clade assignments
 6. Export results as an Auspice JSON for visualization
 
-### Validation pipeline (2018-2020)
+### Test pipeline (2018-2020)
 
-The validation pipeline requires the training pipeline to be completed first, as it uses the optimal clustering parameters found during training.
+The test pipeline requires the training pipeline to be completed first, as it uses the optimal clustering parameters found during training.
 
 ```bash
 cd compare_flu2018-2020
 snakemake --profile profile
 ```
 
-This runs the same embedding and reduction steps on 2018-2020 sequences, clusters using the optimal parameters from training, and produces a `best_per_model_HDBSCAN.csv` comparing train vs. validation performance for each model.
+This runs the same embedding and reduction steps on 2018-2020 sequences, clusters using the optimal parameters from training, and produces a `best_per_model_HDBSCAN.csv` comparing train vs. test performance for each model.
 
 ### Running specific rules
 
