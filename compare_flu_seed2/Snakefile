@@ -1,0 +1,807 @@
+import pandas as pd
+
+RANDOM_SEED = 271828
+CPU_THREADS = 30
+CLUSTER_MIN_SIZE = 10
+CLUSTER_MIN_SAMPLES = 5
+SEASONAL_FLU_REFERENCE_STRAIN = "A/Beijing/32/1992"
+genes = ["All"]
+T_TYPES = ["mean", "bos", "attentionmean", "sitemean"]
+T_MODELS_BASE = ["t33-650M", "t36-3B", "t48-15B"]
+T_MODELS_TYPED = [f"{m}-{t}" for m in T_MODELS_BASE for t in T_TYPES]
+
+BEST_METHODS = pd.read_csv(
+    "../compare_flu2018-2020/results/best_per_model_HDBSCAN.csv"
+)["method"].tolist()
+
+rule all:
+    input:
+        "results/full_HDBSCAN_metadata.csv",
+        "results/best_per_model_HDBSCAN.csv",
+
+
+rule seasonal_flu_test_files:
+    params:
+        input_fasta = "../data/ncbi-h3n2-ha.fa",
+        dropped_strains = "../config/exclude.txt",
+        reference = "../config/reference_h3n2_ha.gb",
+        auspice_config = "../config/auspice_config.json",
+        clades = "../config/clades_h3n2_ha.tsv"
+
+seasonal_flu_test_files = rules.seasonal_flu_test_files.params
+
+rule seasonal_flu_test_deduplicate_sequences:
+    input:
+        sequences = seasonal_flu_test_files.input_fasta
+    output:
+        sequences = "results/deduplicated_sequences.fasta"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python3 ../scripts/deduplicate_sequences.py \
+            --sequences {input.sequences} \
+            --output {output.sequences}
+        """
+
+rule seasonal_flu_test_parse:
+    input:
+        sequences = "results/deduplicated_sequences.fasta",
+    output:
+        sequences = "results/sequences.fasta",
+        metadata = "results/metadata.tsv",
+    params:
+        fasta_fields = "strain date accession country region"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        augur parse \
+            --sequences {input.sequences} \
+            --output-sequences {output.sequences} \
+            --output-metadata {output.metadata} \
+            --fields {params.fasta_fields}
+        """
+
+rule seasonal_flu_test_filter:
+    input:
+        sequences = rules.seasonal_flu_test_parse.output.sequences,
+        metadata = rules.seasonal_flu_test_parse.output.metadata,
+        exclude = seasonal_flu_test_files.dropped_strains
+    output:
+        sequences = "results/filtered.fasta",
+        metadata = "results/filtered_metadata.tsv",
+    params:
+        group_by = "country year month",
+        sequences_per_group = 25,
+        random_seed = RANDOM_SEED,
+        min_date = 2016.0,
+        max_date = 2018.0,
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        augur filter \
+            --sequences {input.sequences} \
+            --metadata {input.metadata} \
+            --exclude {input.exclude} \
+            --output-sequences {output.sequences} \
+            --output-metadata {output.metadata} \
+            --group-by {params.group_by} \
+            --sequences-per-group {params.sequences_per_group} \
+            --subsample-seed {params.random_seed} \
+            --min-date {params.min_date} \
+            --max-date {params.max_date}
+        """
+
+rule seasonal_flu_test_align:
+    input:
+        sequences = rules.seasonal_flu_test_filter.output.sequences,
+        reference = seasonal_flu_test_files.reference,
+    output:
+        alignment = "results/aligned.fasta",
+    conda: "../envs/clustering.yaml"
+    threads: 4
+    shell:
+        """
+        augur align \
+            --sequences {input.sequences} \
+            --reference-sequence {input.reference} \
+            --output {output.alignment} \
+            --fill-gaps \
+            --nthreads {threads}
+        """
+
+rule seasonal_flu_test_remove_reference_from_embedding_alignment:
+    input:
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+    output:
+        alignment = "results/aligned_sequences.fasta",
+    conda: "../envs/clustering.yaml"
+    params:
+        reference = SEASONAL_FLU_REFERENCE_STRAIN,
+    shell:
+        """
+        seqkit grep -v -p "{params.reference}" {input.alignment} > {output.alignment}
+        """
+
+rule seasonal_flu_test_tree:
+    input:
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+    output:
+        tree = "results/tree_raw.nwk",
+    conda: "../envs/clustering.yaml"
+    threads: 1
+    params:
+        random_seed = RANDOM_SEED,
+    shell:
+        """
+        augur tree \
+            --alignment {input.alignment} \
+            --output {output.tree} \
+            --nthreads {threads} \
+            --tree-builder-args="-seed {params.random_seed} -b 100"
+        """
+
+rule seasonal_flu_test_root_and_prune_tree:
+    input:
+        tree = rules.seasonal_flu_test_tree.output.tree,
+    output:
+        tree = "results/rooted_tree_raw.nwk",
+    conda: "../envs/clustering.yaml"
+    params:
+        root = SEASONAL_FLU_REFERENCE_STRAIN,
+    log:
+        "logs/root_and_prune_tree.txt"
+    shell:
+        """
+        python3 ../scripts/root_and_prune_tree.py \
+            --tree {input.tree} \
+            --root {params.root} \
+            --output {output.tree} 2>&1 | tee {log}
+        """
+
+rule seasonal_flu_test_refine:
+    input:
+        tree = rules.seasonal_flu_test_root_and_prune_tree.output.tree,
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+        metadata = rules.seasonal_flu_test_filter.output.metadata,
+    output:
+        tree = "results/tree.nwk",
+        node_data = "results/branch_lengths.json",
+    log:
+        "logs/refine.txt",
+    params:
+        random_seed = RANDOM_SEED,
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        augur refine \
+            --tree {input.tree} \
+            --alignment {input.alignment} \
+            --metadata {input.metadata} \
+            --keep-root \
+            --output-tree {output.tree} \
+            --output-node-data {output.node_data} \
+            --seed {params.random_seed} 2>&1 | tee {log}
+        """
+
+rule seasonal_flu_test_ancestral:
+    input:
+        tree = rules.seasonal_flu_test_refine.output.tree,
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+    output:
+        node_data = "results/nt_muts.json",
+        sequences = "results/aligned_ancestral.fasta"
+    params:
+        inference = "joint"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        augur ancestral \
+            --tree {input.tree} \
+            --alignment {input.alignment} \
+            --output-node-data {output.node_data} \
+            --output-sequences {output.sequences} \
+            --inference {params.inference}
+        """
+
+rule seasonal_flu_test_translate:
+    message: "Translating amino acid sequences"
+    input:
+        tree = rules.seasonal_flu_test_refine.output.tree,
+        node_data = rules.seasonal_flu_test_ancestral.output.node_data,
+        reference = seasonal_flu_test_files.reference
+    output:
+        node_data = "results/aa_muts.json",
+        translations = expand(
+            "results/translations/alignment_{gene}.fasta", gene=["HA1", "HA2", "SigPep"])
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        augur translate \
+            --tree {input.tree} \
+            --ancestral-sequences {input.node_data} \
+            --reference-sequence {input.reference} \
+            --output {output.node_data}\
+            --alignment-output "results/translations/alignment_%GENE.fasta"
+        """
+
+rule seasonal_flu_test_clades:
+    message: " Labeling clades as specified in config/clades.tsv"
+    input:
+        tree = rules.seasonal_flu_test_refine.output.tree,
+        aa_muts = rules.seasonal_flu_test_translate.output.node_data,
+        nuc_muts = rules.seasonal_flu_test_ancestral.output.node_data,
+        clades = seasonal_flu_test_files.clades
+    output:
+        clade_data = "results/clades.json"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        augur clades --tree {input.tree} \
+            --mutations {input.nuc_muts} {input.aa_muts} \
+            --clades {input.clades} \
+            --output {output.clade_data}
+        """
+
+rule seasonal_flu_training_create_table_from_tree_and_node_data:
+    input:
+        tree = rules.seasonal_flu_test_refine.output.tree,
+        clades = rules.seasonal_flu_test_clades.output.clade_data,
+        branch_lengths = rules.seasonal_flu_test_refine.output.node_data,
+    output:
+        table = "results/table.tsv",
+    params:
+        attributes = "clade_membership branch_length divergence",
+        mutation_length_attribute = "branch_length",
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python3 ../scripts/node_data_to_table.py \
+            --tree {input.tree} \
+            --node-data {input.clades} {input.branch_lengths} \
+            --include-internal-nodes \
+            --attributes {params.attributes} \
+            --mutation-length-attribute {params.mutation_length_attribute} \
+            --output {output.table}
+        """
+
+rule seasonal_flu_test_create_distance_matrix:
+    input:
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+    output:
+        distance_matrix = "results/distance_matrix.csv"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        pathogen-distance \
+            --alignment {input.alignment} \
+            --output {output.distance_matrix}
+        """
+
+rule seasonal_flu_test_embed_pca:
+    input:
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+        parameters = "../simulations/influenza-like/no-reassortment/pca_parameters.csv",
+    output:
+        dataframe = "results/embed_pca.csv",
+        figure = "results/embed_pca.pdf",
+        explained_variance = "results/explained_variance_pca.csv"
+    params:
+        random_seed = RANDOM_SEED,
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        pathogen-embed \
+            --alignment {input.alignment} \
+            --embedding-parameters {input.parameters} \
+            --random-seed {params.random_seed} \
+            --output-dataframe {output.dataframe} \
+            --output-figure {output.figure} \
+            pca \
+            --explained-variance {output.explained_variance} \
+            --encoding simplex
+        """
+
+rule seasonal_flu_test_embed_mds:
+    input:
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+        distance_matrix = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
+        parameters = "../simulations/influenza-like/no-reassortment/mds_parameters.csv",
+    output:
+        dataframe = "results/embed_mds.csv",
+        figure = "results/embed_mds.pdf"
+    params:
+        random_seed = RANDOM_SEED,
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        pathogen-embed \
+            --alignment {input.alignment} \
+            --distance-matrix {input.distance_matrix} \
+            --embedding-parameters {input.parameters} \
+            --random-seed {params.random_seed} \
+            --output-dataframe {output.dataframe} \
+            --output-figure {output.figure} \
+            mds
+        """
+
+rule seasonal_flu_test_embed_tsne:
+    input:
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+        distance_matrix = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
+        parameters = "../simulations/influenza-like/no-reassortment/t-sne_parameters.csv",
+    output:
+        dataframe = "results/embed_t-sne.csv",
+        figure = "results/embed_t-sne.pdf"
+    params:
+        random_seed = RANDOM_SEED,
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        pathogen-embed \
+            --alignment {input.alignment} \
+            --distance-matrix {input.distance_matrix} \
+            --embedding-parameters {input.parameters} \
+            --random-seed {params.random_seed} \
+            --output-dataframe {output.dataframe} \
+            --output-figure {output.figure} \
+            t-sne \
+                --pca-encoding simplex
+        """
+
+rule seasonal_flu_test_embed_umap:
+    input:
+        alignment = rules.seasonal_flu_test_align.output.alignment,
+        distance_matrix = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
+        parameters = "../simulations/influenza-like/no-reassortment/umap_parameters.csv",
+    output:
+        dataframe = "results/embed_umap.csv",
+        figure = "results/embed_umap.pdf"
+    params:
+        random_seed = RANDOM_SEED,
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        pathogen-embed \
+            --alignment {input.alignment} \
+            --distance-matrix {input.distance_matrix} \
+            --embedding-parameters {input.parameters} \
+            --random-seed {params.random_seed} \
+            --output-dataframe {output.dataframe} \
+            --output-figure {output.figure} \
+            umap
+        """
+
+rule seasonal_flu_testing_translate:
+    message: "Translating amino acid sequences (with per-gene FASTA output)"
+    input:
+        tree = rules.seasonal_flu_test_refine.output.tree,
+        node_data = rules.seasonal_flu_test_ancestral.output.node_data,
+        reference = seasonal_flu_test_files.reference
+    output:
+        node_data = "results/aa_muts.json",
+        translations = expand(
+            "results/translations/alignment_{gene}.fasta", gene=["HA1", "HA2", "SigPep"])
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        augur translate \
+            --tree {input.tree} \
+            --ancestral-sequences {input.node_data} \
+            --reference-sequence {input.reference} \
+            --output {output.node_data}\
+            --alignment-output "results/translations/alignment_%GENE.fasta"
+        """
+
+rule filter_fasta:
+    input:
+        fasta = "results/translations/alignment_{gene}.fasta"
+    output:
+        fasta = "results/translations/alignment_filtered_{gene}.fasta"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python ../scripts/filter_fasta.py {input.fasta} {output.fasta}
+        """
+
+rule join_fasta:
+    input:
+        fasta_files = expand(
+            "results/translations/alignment_filtered_{gene}.fasta", gene=["SigPep", "HA1", "HA2"])
+    output:
+        fasta = "results/translations/alignment_filtered_All.fasta"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python ../scripts/join_fasta.py {input.fasta_files} {output.fasta}
+        """
+
+rule extract_features_CARP:
+    input:
+        fasta = rules.join_fasta.output.fasta
+    output:
+        marker = "results/embeddingCARP.txt"
+    benchmark:
+        "benchmarks/plm_extract_CARP.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1,
+        exclusive = 1
+    params:
+        output_dir = "results/features_CARP/alignment_filtered_All"
+    shell:
+        """
+        python ../scripts/extract_CARP.py carp_640M {input.fasta} {params.output_dir} \
+            --include mean --repr_layers 33
+        touch {output.marker}
+        """
+
+rule extract_features_prot5:
+    input:
+        fasta = rules.join_fasta.output.fasta
+    output:
+        marker = "results/embedding_prot5.txt"
+    benchmark:
+        "benchmarks/plm_extract_prot5.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1,
+        exclusive = 1
+    params:
+        script = "../scripts/extract_prott5.py",
+        output_dir = "results/features/prot5/All",
+        model = "Rostlab/prot_t5_xl_uniref50",
+        device = "cuda"
+    shell:
+        """
+        python {params.script} \
+            --fasta {input.fasta} \
+            --output-dir {params.output_dir} \
+            --model-name {params.model} \
+            --device {params.device}
+        touch {output.marker}
+        """
+
+rule extract_features_protbert:
+    input:
+        fasta = rules.join_fasta.output.fasta
+    output:
+        marker = "results/embedding_protbert.txt"
+    benchmark:
+        "benchmarks/plm_extract_protbert.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1,
+        exclusive = 1
+    params:
+        script = "../scripts/extract_protbert.py",
+        output_dir = "results/features/protbert/All",
+        model = "Rostlab/prot_bert_bfd",
+        device = "cuda"
+    shell:
+        """
+        python {params.script} \
+            --fasta {input.fasta} \
+            --output-dir {params.output_dir} \
+            --model-name {params.model} \
+            --device {params.device}
+        touch {output.marker}
+        """
+
+EPITOPE_SITE_FILES = [
+    "../config/h3n2/ha/wolf.json",
+    "../config/h3n2/ha/luksza.json",
+    "../config/h3n2/ha/koel.json",
+    "../config/h3n2/ha/shih.json",
+]
+
+rule make_sites:
+    input:
+        json_files = EPITOPE_SITE_FILES
+    output:
+        sites = "results/sites.txt"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python ../scripts/make_sites.py {input.json_files} \
+            -o {output.sites} --sigpep_length 16
+        """
+
+rule extract_features_esm_t33_650M:
+    input:
+        fasta = rules.join_fasta.output.fasta,
+        sites_file = rules.make_sites.output.sites,
+    output:
+        marker = "results/embedding.txt"
+    benchmark:
+        "benchmarks/plm_extract_t33-650M.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1,
+        exclusive = 1
+    params:
+        output_dir = "results/features/alignment_filtered_All"
+    shell:
+        """
+        python ../scripts/extract.py esm2_t33_650M_UR50D {input.fasta} {params.output_dir} \
+            --repr_layers 33 --include mean bos attentionmean sitemean \
+            --sites_file {input.sites_file} --cuda_device 0
+        touch {output.marker}
+        """
+
+rule extract_features_esm_t36_3B:
+    input:
+        fasta = rules.join_fasta.output.fasta,
+        sites_file = rules.make_sites.output.sites,
+    output:
+        marker = "results/embeddingt36.txt"
+    benchmark:
+        "benchmarks/plm_extract_t36-3B.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1,
+        exclusive = 1
+    params:
+        output_dir = "results/features_t36-3B/alignment_filtered_All"
+    shell:
+        """
+        python ../scripts/extract.py esm2_t36_3B_UR50D {input.fasta} {params.output_dir} \
+            --repr_layers 36 --include mean bos attentionmean sitemean \
+            --sites_file {input.sites_file} --cuda_device 0
+        touch {output.marker}
+        """
+
+rule extract_features_esm_t48_15B:
+    input:
+        fasta = rules.join_fasta.output.fasta,
+        sites_file = rules.make_sites.output.sites,
+    output:
+        marker = "results/embeddingt48.txt"
+    benchmark:
+        "benchmarks/plm_extract_t48-15B.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1,
+        exclusive = 1
+    params:
+        output_dir = "results/features_t48-15B/alignment_filtered_All",
+        cpu_threads = CPU_THREADS
+    shell:
+        """
+        python ../scripts/extract.py esm2_t48_15B_UR50D {input.fasta} {params.output_dir} \
+            --repr_layers 48 --include mean bos attentionmean sitemean \
+            --sites_file {input.sites_file} --nogpu --cpu_threads {params.cpu_threads}
+        touch {output.marker}
+        """
+
+MODEL_FEATURES_DIR = {
+    "t33-650M": "results/features",
+    "t36-3B":   "results/features_t36-3B",
+    "t48-15B":  "results/features_t48-15B",
+}
+
+rule join_t_models_typed:
+    input:
+        marker = lambda wc: (
+            rules.extract_features_esm_t33_650M.output.marker if wc.model.startswith("t33-650M") else
+            (rules.extract_features_esm_t36_3B.output.marker  if wc.model.startswith("t36-3B")   else
+             rules.extract_features_esm_t48_15B.output.marker)
+        )
+    output:
+        csv_file = "results/embed_{model}_{gene}.csv"
+    conda: "../envs/clustering.yaml"
+    wildcard_constraints:
+        model = "|".join(T_MODELS_TYPED),
+        gene = "|".join(genes)
+    params:
+        base = lambda wc: wc.model.rsplit("-", 1)[0],
+        mtype = lambda wc: wc.model.rsplit("-", 1)[1],
+        feats = lambda wc: MODEL_FEATURES_DIR[wc.model.rsplit("-", 1)[0]],
+        layer = lambda wc: 33 if wc.model.startswith("t33-650M") else (36 if wc.model.startswith("t36-3B") else 48)
+    shell:
+        """
+        python ../scripts/join_data.py {params.feats}/alignment_filtered_{wildcards.gene} {output.csv_file} \
+            --mode {params.mtype} --layer {params.layer}
+        """
+
+rule join_prot5:
+    input:
+        marker = rules.extract_features_prot5.output.marker
+    output:
+        csv_file = "results/embed_prot5.csv"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python ../scripts/join_data.py results/features/prot5/All {output.csv_file} --layer 0
+        """
+
+rule join_protbert:
+    input:
+        marker = rules.extract_features_protbert.output.marker
+    output:
+        csv_file = "results/embed_protbert.csv"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python ../scripts/join_data.py results/features/protbert/All {output.csv_file} --layer 0
+        """
+
+rule join_CARP:
+    input:
+        marker = rules.extract_features_CARP.output.marker
+    output:
+        csv_file = "results/embed_CARP.csv"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python ../scripts/join_data.py results/features_CARP/alignment_filtered_All {output.csv_file} --layer 33
+        """
+
+rule reduce_dimension_prot5:
+    input:
+        csv_file = rules.join_prot5.output.csv_file,
+    output:
+        csv_file = "results/embed_reduced_{method}_{metric}_{components}_prot5.csv"
+    conda: "../envs/clustering.yaml"
+    params:
+        random_seed = RANDOM_SEED,
+    shell:
+        """
+        python ../scripts/reduce_2d.py {input.csv_file} {wildcards.method} {output.csv_file} --metric {wildcards.metric} --n_components {wildcards.components} --random-seed {params.random_seed}
+        """
+
+rule reduce_dimension_protbert:
+    input:
+        csv_file = rules.join_protbert.output.csv_file
+    output:
+        csv_file = "results/embed_reduced_{method}_{metric}_{components}_protbert.csv"
+    conda: "../envs/clustering.yaml"
+    params:
+        random_seed = RANDOM_SEED,
+    shell:
+        """
+        python ../scripts/reduce_2d.py {input.csv_file} {wildcards.method} {output.csv_file} --metric {wildcards.metric} --n_components {wildcards.components} --random-seed {params.random_seed}
+        """
+
+rule reduce_dimension_CARP:
+    input:
+        csv_file = rules.join_CARP.output.csv_file,
+    output:
+        csv_file = "results/embed_reduced_{method}_{metric}_{components}_CARP.csv"
+    conda: "../envs/clustering.yaml"
+    params:
+        random_seed = RANDOM_SEED,
+    shell:
+        """
+        python ../scripts/reduce_2d.py {input.csv_file} {wildcards.method} {output.csv_file} --metric {wildcards.metric} --n_components {wildcards.components} --random-seed {params.random_seed}
+        """
+
+rule reduce_dimension:
+    input:
+        csv_file = "results/embed_{model}_{gene}.csv"
+    wildcard_constraints:
+        gene = '|'.join(["HA1", "HA2", "All"])
+    output:
+        csv_file = "results/embed_reduced_{method}_{metric}_{components}_{model}_{gene}.csv"
+    conda: "../envs/clustering.yaml"
+    params:
+        random_seed = RANDOM_SEED,
+    shell:
+        """
+        python ../scripts/reduce_2d.py {input.csv_file} {wildcards.method} {output.csv_file} --metric {wildcards.metric} --n_components {wildcards.components} --random-seed {params.random_seed}
+        """
+
+rule seasonal_flu_training_get_table_of_tips:
+    input:
+        metadata = rules.seasonal_flu_training_create_table_from_tree_and_node_data.output.table,
+    output:
+        metadata = "results/table_of_tips.tsv",
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        csvtk filter2 -t -f '$is_internal_node=="False"' {input.metadata} > {output.metadata}
+        """
+
+rule seasonal_flu_test_cluster_with_optimal_parameters:
+    input:
+        embedding = "results/embed_{method}.csv",
+        parameters = "../compare_flu/results/optimal_cluster_accuracy_and_parameters.csv",
+    output:
+        clustered_embedding = "results/cluster_embed_{method}.csv",
+        clustered_embedding_figure = "results/cluster_embed_{method}.pdf",
+    conda: "../envs/clustering.yaml"
+    params:
+        min_size = CLUSTER_MIN_SIZE,
+        min_samples = CLUSTER_MIN_SAMPLES,
+    shell:
+        """
+        pathogen-cluster \
+            --embedding {input.embedding} \
+            --label-attribute "{wildcards.method}_label" \
+            --min-size {params.min_size} \
+            --min-samples {params.min_samples} \
+            --distance-threshold "$(csvtk filter2 -f '$method=="{wildcards.method}"' {input.parameters} | csvtk cut -f distance_threshold | csvtk del-header)" \
+            --output-dataframe {output.clustered_embedding} \
+            --output-figure {output.clustered_embedding_figure}
+        """
+
+rule seasonal_flu_test_cluster_distances_with_optimal_parameters:
+    input:
+        distances = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
+        parameters = "../compare_flu/results/optimal_cluster_accuracy_and_parameters.csv",
+    output:
+        clustered = "results/cluster_embed_genetic.csv",
+    conda: "../envs/clustering.yaml"
+    params:
+        min_size = CLUSTER_MIN_SIZE,
+        min_samples = CLUSTER_MIN_SAMPLES,
+    shell:
+        """
+        pathogen-cluster \
+            --distance-matrix {input.distances} \
+            --label-attribute "genetic_label" \
+            --min-size {params.min_size} \
+            --min-samples {params.min_samples} \
+            --distance-threshold "$(csvtk filter2 -f '$method=="genetic"' {input.parameters} | csvtk cut -f distance_threshold | csvtk del-header)" \
+            --output-dataframe /dev/stdout \
+            | tsv-select -H --delimiter "," -f strain,genetic_label > {output.clustered}
+        """
+
+rule seasonal_flu_test_cluster_accuracy:
+    input:
+        metadata = rules.seasonal_flu_training_get_table_of_tips.output.metadata,
+        embedding = "results/cluster_embed_{method}.csv",
+    output:
+        dataframe = "results/cluster_accuracy_{method}.csv",
+    conda: "../envs/clustering.yaml"
+    params:
+        clade_column = "clade_membership",
+        ignored_clusters = ["unassigned", "-1"],
+    shell:
+        """
+        python3 ../scripts/metadata_HDBSCAN.py \
+            --method {wildcards.method} \
+            --true-clusters {input.metadata} \
+            --true-clusters-column {params.clade_column:q} \
+            --predicted-clusters {input.embedding} \
+            --predicted-clusters-column "{wildcards.method}_label" \
+            --ignored-clusters {params.ignored_clusters:q} \
+            --output {output.dataframe}
+        """
+
+rule seasonal_flu_test_concat_HDBSCAN_table:
+    input:
+        accuracies = expand(
+            "results/cluster_accuracy_{method}.csv", method=BEST_METHODS)
+    output:
+        metadata = "results/full_HDBSCAN_metadata.csv"
+    params:
+        column = "normalized_vi",
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python3 ../scripts/concatenate_tables.py \
+            --tables {input.accuracies} \
+            --separator ',' \
+            --sort-by {params.column} \
+            --output {output.metadata}
+        """
+
+ALL_MODELS = T_MODELS_TYPED + ["protbert", "prot5", "CARP"]
+
+rule best_per_model_HDBSCAN:
+    input:
+        train = "../compare_flu/results/full_HDBSCAN_metadata.csv",
+        validation = rules.seasonal_flu_test_concat_HDBSCAN_table.output.metadata,
+    output:
+        metadata = "results/best_per_model_HDBSCAN.csv",
+    params:
+        models = ALL_MODELS,
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python3 ../scripts/filter_best_per_model.py \
+            --train {input.train} \
+            --validation {input.validation} \
+            --models {params.models} \
+            --output {output.metadata}
+        """
