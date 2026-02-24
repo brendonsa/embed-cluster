@@ -2,6 +2,10 @@
 import argparse
 import numpy as np
 from collections import Counter
+def translate_nt(nt_seq):
+    from Bio.Seq import Seq
+    return str(Seq(nt_seq.replace("-", "")).translate()).rstrip("*")
+
 def read_fasta(path):
     seqs = {}
     current = None
@@ -78,7 +82,7 @@ def mutations_per_seq(mat, reference):
     return (mat != reference[None, :]).sum(axis=1).astype(float)
 
 
-def report(label, seqs, clades, phylo, reference=None):
+def report(label, seqs, clades, phylo, reference=None, aa_seqs=None, aa_reference=None):
     strains = [s for s in seqs if s in clades]
     missing = [s for s in seqs if s not in clades]
 
@@ -148,14 +152,35 @@ def report(label, seqs, clades, phylo, reference=None):
     # Mutations
     vs = variable_sites(mat)
     print("\n  Mutations (vs reference)")
-    print(f"  Variable sites         : {vs} / {L}  ({100*vs/L:.1f}%)")
+    print(f"  NT variable sites      : {vs} / {L}  ({100*vs/L:.1f}%)")
     if reference is not None:
-        muts = mutations_per_seq(mat, reference)
-        print(f"  Per-sequence           : mean={muts.mean():.1f}  "
-              f"std={muts.std():.1f}  "
-              f"min={muts.min():.0f}  max={muts.max():.0f}")
+        nt_muts = mutations_per_seq(mat, reference)
+        print(f"  NT per-sequence        : mean={nt_muts.mean():.1f}  "
+              f"std={nt_muts.std():.1f}  "
+              f"min={nt_muts.min():.0f}  max={nt_muts.max():.0f}")
+
+        if aa_seqs is not None and aa_reference is not None:
+            aa_strains = [s for s in strains if s in aa_seqs]
+            n_missing_aa = len(strains) - len(aa_strains)
+            if n_missing_aa:
+                print(f"  ({n_missing_aa} strains missing from AA alignment, skipped)")
+            aa_list = [aa_seqs[s] for s in aa_strains]
+            aa_mat  = to_matrix(aa_list)
+            aa_muts = mutations_per_seq(aa_mat, aa_reference)
+            nt_muts_matched = mutations_per_seq(mat[[strains.index(s) for s in aa_strains]], reference)
+            syn = nt_muts_matched - aa_muts
+            print(f"  AA per-sequence        : mean={aa_muts.mean():.1f}  "
+                  f"std={aa_muts.std():.1f}  "
+                  f"min={aa_muts.min():.0f}  max={aa_muts.max():.0f}")
+            print(f"  Synonymous (NT - AA)   : mean={syn.mean():.1f}  "
+                  f"std={syn.std():.1f}  "
+                  f"min={syn.min():.0f}  max={syn.max():.0f}")
+            total_nt = nt_muts_matched.sum()
+            total_syn = syn.sum()
+            if total_nt > 0:
+                print(f"  Synonymous fraction    : {100*total_syn/total_nt:.1f}%")
     else:
-        print("  Per-sequence           : (skipped — no --full-alignment provided)")
+        print("  Per-sequence           : (skipped — no --reference provided)")
 
     # Phylogenetic distances
     print("\n  Phylogenetic distances")
@@ -192,19 +217,30 @@ if __name__ == "__main__":
     parser.add_argument("--clade-col",  default="clade_membership",
                         help="Column name for clade labels in the table")
     parser.add_argument("--reference", default=None,
-                        help="Reference FASTA (config/reference_h3n2_ha.fasta). "
-                             "Used for per-sequence mutation counts.")
+                        help="Reference NT FASTA (config/reference_h3n2_ha.fasta).")
+    parser.add_argument("--aa-alignment", default=None,
+                        help="AA alignment FASTA "
+                             "(results/translations/alignment_filtered_All.fasta).")
     args = parser.parse_args()
 
     seqs          = read_fasta(args.alignment)
     clades, phylo = read_table(args.table, clade_col=args.clade_col)
 
-    reference = None
+    reference = aa_reference = aa_seqs = None
+
     if args.reference:
         ref_seqs = read_fasta(args.reference)
-        if len(ref_seqs) == 0:
+        if not ref_seqs:
             print(f"WARNING: no sequences found in {args.reference}", flush=True)
         else:
-            reference = to_matrix([next(iter(ref_seqs.values()))])[0]
+            nt_ref_seq = next(iter(ref_seqs.values()))
+            reference  = to_matrix([nt_ref_seq])[0]
+            if args.aa_alignment:
+                aa_translated = translate_nt(nt_ref_seq)
+                aa_reference  = to_matrix([aa_translated])[0]
 
-    report(args.label, seqs, clades, phylo, reference=reference)
+    if args.aa_alignment:
+        aa_seqs = read_fasta(args.aa_alignment)
+
+    report(args.label, seqs, clades, phylo,
+           reference=reference, aa_seqs=aa_seqs, aa_reference=aa_reference)
