@@ -20,7 +20,6 @@ BEST_METHODS = [
 rule all:
     input:
         "results/full_HDBSCAN_metadata.csv",
-        "results/best_per_model_HDBSCAN.csv",
 
 
 rule seasonal_flu_test_files:
