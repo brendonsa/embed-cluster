@@ -90,6 +90,8 @@ Most PLM extraction rules request a GPU (`resources: gpu=1`). The t48-15B model 
 
 Rules, scripts, data and configurations adapted from [blab/cartography](https://github.com/blab/cartography)
 
+Last commit of the version used: 3fcac4ef2a73e5929ea018f11555ec84b88371dc
+
 Copyright (c) 2019 Bedford Lab.
 
 > Nanduri, S., Black, A., Bedford, T., & Huddleston, J. (2024). Dimensionality reduction distills complex evolutionary relationships in seasonal influenza and SARS-CoV-2. *Virus Evolution*, veae087. https://doi.org/10.1093/ve/veae087
