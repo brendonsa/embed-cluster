@@ -299,7 +299,7 @@ rule seasonal_flu_training_create_table_from_tree_and_node_data:
 
 rule seasonal_flu_test_create_distance_matrix:
     input:
-        alignment = rules.seasonal_flu_test_align.output.alignment,
+        alignment = rules.seasonal_flu_test_remove_reference_from_embedding_alignment.output.alignment,
     output:
         distance_matrix = "results/distance_matrix.csv"
     conda: "../envs/clustering.yaml"
@@ -312,7 +312,7 @@ rule seasonal_flu_test_create_distance_matrix:
 
 rule seasonal_flu_test_embed_pca:
     input:
-        alignment = rules.seasonal_flu_test_align.output.alignment,
+        alignment = rules.seasonal_flu_test_remove_reference_from_embedding_alignment.output.alignment,
         parameters = "../simulations/influenza-like/no-reassortment/pca_parameters.csv",
     output:
         dataframe = "results/embed_pca.csv",
@@ -336,7 +336,7 @@ rule seasonal_flu_test_embed_pca:
 
 rule seasonal_flu_test_embed_mds:
     input:
-        alignment = rules.seasonal_flu_test_align.output.alignment,
+        alignment = rules.seasonal_flu_test_remove_reference_from_embedding_alignment.output.alignment,
         distance_matrix = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
         parameters = "../simulations/influenza-like/no-reassortment/mds_parameters.csv",
     output:
@@ -359,7 +359,7 @@ rule seasonal_flu_test_embed_mds:
 
 rule seasonal_flu_test_embed_tsne:
     input:
-        alignment = rules.seasonal_flu_test_align.output.alignment,
+        alignment = rules.seasonal_flu_test_remove_reference_from_embedding_alignment.output.alignment,
         distance_matrix = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
         parameters = "../simulations/influenza-like/no-reassortment/t-sne_parameters.csv",
     output:
@@ -383,7 +383,7 @@ rule seasonal_flu_test_embed_tsne:
 
 rule seasonal_flu_test_embed_umap:
     input:
-        alignment = rules.seasonal_flu_test_align.output.alignment,
+        alignment = rules.seasonal_flu_test_remove_reference_from_embedding_alignment.output.alignment,
         distance_matrix = rules.seasonal_flu_test_create_distance_matrix.output.distance_matrix,
         parameters = "../simulations/influenza-like/no-reassortment/umap_parameters.csv",
     output:
