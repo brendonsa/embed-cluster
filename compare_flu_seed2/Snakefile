@@ -20,6 +20,7 @@ BEST_METHODS = [
 rule all:
     input:
         "results/full_HDBSCAN_metadata.csv",
+        "results/accessions_and_authors.tsv",
 
 
 rule seasonal_flu_test_files:
@@ -786,4 +787,33 @@ rule best_per_model_HDBSCAN:
             --validation {input.validation} \
             --models {params.models} \
             --output {output.metadata}
+        """
+
+rule seasonal_flu_get_accessions:
+    input:
+        metadata="results/filtered_metadata.tsv",
+    output:
+        accessions="results/accessions.txt",
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        csvtk mutate2 -t -n "versioned_accession" -e '$accession + ".1"' {input.metadata} \
+            | csvtk cut -t -f versioned_accession \
+            | sed 1d \
+            | sort -k 1,1 > {output}
+        """
+
+rule seasonal_flu_get_authors_for_accessions:
+    input:
+        accessions="results/accessions.txt",
+    output:
+        authors="results/accessions_and_authors.tsv",
+    params:
+        fields="accession,virus-name,submitter-affiliation,submitter-names",
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        datasets summary virus genome accession --as-json-lines --inputfile {input.accessions} \
+            | dataformat tsv virus-genome --fields {params.fields} \
+            | csvtk mutate2 -t -n "dataset" -e "'seasonal-flu-h3n2-ha-2016-2018-seed2'" > {output.authors}
         """
