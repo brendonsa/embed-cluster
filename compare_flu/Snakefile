@@ -47,7 +47,8 @@ rule all:
                metric=['euclidean','cosine'],
                components=[1,2,4,6,8,10]),
         "results/full_HDBSCAN_metadata.csv",
-        "auspice/cartography_ncov.json"
+        "auspice/cartography_ncov.json",
+        "results/accessions_and_authors.tsv"
 
 
 
@@ -953,4 +954,34 @@ rule export:
             --include-root-sequence \
             --minify-json \
             --output {output.auspice_tree}
+        """
+
+
+rule seasonal_flu_get_accessions:
+    input:
+        metadata="results/filtered_metadata.tsv",
+    output:
+        accessions="results/accessions.txt",
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        csvtk mutate2 -t -n "versioned_accession" -e '$accession + ".1"' {input.metadata} \
+            | csvtk cut -t -f versioned_accession \
+            | sed 1d \
+            | sort -k 1,1 > {output}
+        """
+
+rule seasonal_flu_get_authors_for_accessions:
+    input:
+        accessions="results/accessions.txt",
+    output:
+        authors="results/accessions_and_authors.tsv",
+    params:
+        fields="accession,virus-name,submitter-affiliation,submitter-names",
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        datasets summary virus genome accession --as-json-lines --inputfile {input.accessions} \
+            | dataformat tsv virus-genome --fields {params.fields} \
+            | csvtk mutate2 -t -n "dataset" -e "'seasonal-flu-h3n2-ha-2018-2020'" > {output.authors}
         """
