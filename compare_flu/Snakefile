@@ -810,7 +810,7 @@ rule seasonal_flu_training_get_table_of_tips:
 
 rule seasonal_flu_training_cluster_accuracy:
     input:
-        metadata = rules.get_table_of_tips.output.metadata,
+        metadata = rules.seasonal_flu_training_get_table_of_tips.output.metadata,
         clusters="results/cluster/{method}/{distance_threshold}.csv",
     output:
         dataframe="results/cluster_accuracy/{method}/{distance_threshold}.csv",
