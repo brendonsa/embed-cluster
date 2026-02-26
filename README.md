@@ -84,7 +84,7 @@ snakemake --profile profile results/embed_prot5.csv
 
 ### GPU vs CPU
 
-Most PLM extraction rules request a GPU (`resources: gpu=1`). The t48-15B model falls back to CPU with multi-threading if no GPU is available. Adjust `CPU_THREADS` at the top of each Snakefile as needed.
+Most PLM extraction rules request a GPU (`resources: gpu=1`). The t48-15B model uses CPU with multi-threading. Adjust `CPU_THREADS` at the top of each Snakefile as needed. To change this behaviour please consult the t36 and t33 rule script calls.
 
 ## Acknowledgments
 
@@ -98,6 +98,8 @@ Copyright (c) 2019 Bedford Lab.
 
 ### Modifications done
 The [blab/cartography](https://github.com/blab/cartography) results we report in our paper can be different than the ones reported in the [blab/cartography](https://doi.org/10.1093/ve/veae087).
+
+We use some of the pipeline, trimming unneeded rules as the scope of the study differs.
 
 The pipeline was not modified if not needed, to keep the baseline results as comparable as possible. But some modifications had to be applied.
 
