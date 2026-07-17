@@ -1,0 +1,158 @@
+# Windowed (Gaussian-taper, win-1) distance-matrix clustering.
+#
+# Standalone, additive pipeline: it reuses outputs already produced by the main Snakefile
+# (the concatenated protein alignment and the table of tips) and only runs the new rules.
+# It extracts per-residue ESM embeddings, aggregates them into a strain-by-strain distance
+# matrix with the windowed procedure (window size 1 => per-site; Gaussian taper is a no-op
+# at width 1), clusters with pathogen-cluster --distance-matrix, scores against clades, and
+# writes a NEW aggregate: results/full_HDBSCAN_metadata_windowed.csv. Nothing existing is
+# touched.
+
+RANDOM_SEED = 314159
+CPU_THREADS = 30
+
+DISTANCE_THRESHOLDS = [
+    0.0, 0.1, 0.2, 0.3, 0.4, 0.5,
+    1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0,
+    5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0,
+    10.5, 11.0, 11.5, 12.0, 12.5, 13.0, 13.5, 14.0, 14.5, 15.0,
+    15.5, 16.0, 16.5, 17.0, 17.5, 18.0, 18.5, 19.0, 19.5, 20.0,
+]
+
+CLUSTER_MIN_SIZE = 10
+CLUSTER_MIN_SAMPLES = 5
+
+# Windowed-procedure settings.
+WINDOW_SIZE = 1          # "win 1" -> per-site aggregation
+OVERLAP = 0
+SIGMA = 1                # ignored at window size 1
+
+# ESM model used for the per-residue embeddings.
+MODEL_LOCATION = "esm2_t33_650M_UR50D"
+LAYER = 33
+
+METRICS = ["euclidean", "cosine"]
+WINDOWED_METHODS = [f"windowed_{m}" for m in METRICS]
+
+PERTOK_DIR = "results/features_pertok/alignment_filtered_All"
+
+
+wildcard_constraints:
+    metric = "|".join(METRICS),
+    method = "|".join(WINDOWED_METHODS),
+    distance_threshold = r"[0-9]+(\.[0-9]+)?"
+
+
+def method_metric(method):
+    return method.split("windowed_")[-1]
+
+
+rule all:
+    input:
+        "results/full_HDBSCAN_metadata_windowed.csv"
+
+
+rule extract_features_pertok:
+    input:
+        fasta = "results/translations/alignment_filtered_All.fasta"
+    output:
+        marker = "results/embedding_pertok.txt"
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1
+    params:
+        output_dir = PERTOK_DIR,
+        model = MODEL_LOCATION,
+        layer = LAYER
+    shell:
+        """
+        python ../scripts/extract.py {params.model} {input.fasta} {params.output_dir} \
+            --repr_layers {params.layer} --include per_tok --cuda_device 0
+        touch {output.marker}
+        """
+
+
+rule build_windowed_distance_matrix:
+    input:
+        marker = rules.extract_features_pertok.output.marker
+    output:
+        matrix = "results/windowed_distance_matrix_{metric}.csv"
+    conda: "../envs/clustering.yaml"
+    params:
+        input_dir = PERTOK_DIR,
+        layer = LAYER,
+        window_size = WINDOW_SIZE,
+        overlap = OVERLAP,
+        sigma = SIGMA
+    shell:
+        """
+        python ../scripts/build_windowed_distance_matrix.py \
+            --input-dir {params.input_dir} \
+            --output {output.matrix} \
+            --layer {params.layer} \
+            --window-size {params.window_size} \
+            --overlap {params.overlap} \
+            --sigma {params.sigma} \
+            --metric {wildcards.metric}
+        """
+
+
+rule cluster_windowed:
+    input:
+        distances = lambda wc: f"results/windowed_distance_matrix_{method_metric(wc.method)}.csv"
+    output:
+        dataframe = "results/cluster/{method}/{distance_threshold}.csv",
+        figure    = "results/cluster/{method}/{distance_threshold}.pdf",
+    params:
+        min_size = CLUSTER_MIN_SIZE,
+        min_samples = CLUSTER_MIN_SAMPLES,
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        pathogen-cluster \
+            --distance-matrix {input.distances} \
+            --min-size {params.min_size} \
+            --min-samples {params.min_samples} \
+            --distance-threshold {wildcards.distance_threshold} \
+            --label-attribute "{wildcards.method}_cluster_at_{wildcards.distance_threshold}" \
+            --output-dataframe {output.dataframe} \
+            --output-figure {output.figure}
+        """
+
+
+rule cluster_accuracy_windowed:
+    input:
+        metadata = "results/table_of_tips.tsv",
+        clusters = "results/cluster/{method}/{distance_threshold}.csv",
+    output:
+        dataframe = "results/cluster_accuracy/{method}/{distance_threshold}.csv",
+    params:
+        clade_column = "clade_membership",
+        ignored_clusters = ["unassigned", "-1"],
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python3 ../scripts/metadata_HDBSCAN.py \
+            --method {wildcards.method} \
+            --true-clusters {input.metadata} \
+            --true-clusters-column {params.clade_column:q} \
+            --predicted-clusters {input.clusters} \
+            --predicted-clusters-column "{wildcards.method}_cluster_at_{wildcards.distance_threshold}" \
+            --ignored-clusters {params.ignored_clusters:q} \
+            --output {output.dataframe}
+        """
+
+
+rule concat_cluster_accuracy_windowed:
+    input:
+        accuracies = expand(
+            "results/cluster_accuracy/{method}/{distance_threshold}.csv",
+            method=WINDOWED_METHODS,
+            distance_threshold=DISTANCE_THRESHOLDS,
+        )
+    output:
+        metadata = "results/full_HDBSCAN_metadata_windowed.csv"
+    params:
+        column = "normalized_vi",
+    conda: "../envs/clustering.yaml"
+    script: "../scripts/concat_cluster_accuracy.py"
