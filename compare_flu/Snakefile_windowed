@@ -1,13 +1,3 @@
-# Windowed (Gaussian-taper, win-1) distance-matrix clustering.
-#
-# Standalone, additive pipeline: it reuses outputs already produced by the main Snakefile
-# (the concatenated protein alignment and the table of tips) and only runs the new rules.
-# It extracts per-residue ESM embeddings, aggregates them into a strain-by-strain distance
-# matrix with the windowed procedure (window size 1 => per-site; Gaussian taper is a no-op
-# at width 1), clusters with pathogen-cluster --distance-matrix, scores against clades, and
-# writes a NEW aggregate: results/full_HDBSCAN_metadata_windowed.csv. Nothing existing is
-# touched.
-
 RANDOM_SEED = 314159
 CPU_THREADS = 30
 
@@ -22,29 +12,33 @@ DISTANCE_THRESHOLDS = [
 CLUSTER_MIN_SIZE = 10
 CLUSTER_MIN_SAMPLES = 5
 
-# Windowed-procedure settings.
-WINDOW_SIZE = 1          # "win 1" -> per-site aggregation
+WINDOW_SIZE = 1
 OVERLAP = 0
-SIGMA = 1                # ignored at window size 1
+SIGMA = 1
 
-# ESM model used for the per-residue embeddings.
 MODEL_LOCATION = "esm2_t33_650M_UR50D"
 LAYER = 33
 
 METRICS = ["euclidean", "cosine"]
-WINDOWED_METHODS = [f"windowed_{m}" for m in METRICS]
+REDUCERS = ["t-sne", "umap", "mds"]
+COMPONENTS = [1, 2, 4, 6, 8, 10]
+
+WINDOWED_METHODS = [
+    f"reduced_{r}_{m}_{c}_windowed"
+    for r in REDUCERS
+    for m in METRICS
+    for c in COMPONENTS
+]
 
 PERTOK_DIR = "results/features_pertok/alignment_filtered_All"
 
 
 wildcard_constraints:
     metric = "|".join(METRICS),
+    redmethod = "|".join(REDUCERS),
+    components = r"\d+",
     method = "|".join(WINDOWED_METHODS),
     distance_threshold = r"[0-9]+(\.[0-9]+)?"
-
-
-def method_metric(method):
-    return method.split("windowed_")[-1]
 
 
 rule all:
@@ -97,9 +91,24 @@ rule build_windowed_distance_matrix:
         """
 
 
+rule reduce_windowed_matrix:
+    input:
+        matrix = "results/windowed_distance_matrix_{metric}.csv"
+    output:
+        embedding = "results/embed_reduced_{redmethod}_{metric}_{components}_windowed.csv"
+    conda: "../envs/clustering.yaml"
+    params:
+        random_seed = RANDOM_SEED
+    shell:
+        """
+        python ../scripts/reduce_2d_matrix.py {input.matrix} {wildcards.redmethod} {output.embedding} \
+            --n_components {wildcards.components} --random-seed {params.random_seed}
+        """
+
+
 rule cluster_windowed:
     input:
-        distances = lambda wc: f"results/windowed_distance_matrix_{method_metric(wc.method)}.csv"
+        embedding = "results/embed_{method}.csv"
     output:
         dataframe = "results/cluster/{method}/{distance_threshold}.csv",
         figure    = "results/cluster/{method}/{distance_threshold}.pdf",
@@ -110,7 +119,7 @@ rule cluster_windowed:
     shell:
         """
         pathogen-cluster \
-            --distance-matrix {input.distances} \
+            --embedding {input.embedding} \
             --min-size {params.min_size} \
             --min-samples {params.min_samples} \
             --distance-threshold {wildcards.distance_threshold} \

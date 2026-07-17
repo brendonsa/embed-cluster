@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""Build a strain-by-strain distance matrix from per-residue (per-token) ESM embeddings
-using a windowed procedure with a Gaussian taper that highlights central positions.
-
-Mirrors the phyloembed Gaussian-window procedure. With --window-size 1 (the default, the
-"win 1" setting) this reduces to per-site distance aggregation and the Gaussian taper is a
-no-op. Positions are assumed aligned across strains (equal-length aligned FASTA), so
-per-token embeddings line up column-by-column.
-
-Reads the per-token .pt files written by scripts/extract.py --include per_tok
-(data["full"]["representations"][layer], shape (L, D)) and writes a square CSV matrix
-in the same format pathogen-distance produces (index and columns = strain names), so it
-can be fed straight to `pathogen-cluster --distance-matrix`.
-"""
+"""Windowed (Gaussian-taper) distance matrix from per-token embeddings."""
 import argparse
 import glob
 import os
