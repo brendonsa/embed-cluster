@@ -16,24 +16,31 @@ WINDOW_SIZE = 1
 OVERLAP = 0
 SIGMA = 1
 
-MODEL_LOCATION = "esm2_t33_650M_UR50D"
-LAYER = 33
+# kind: esm | protbert | msapairformer
+MODELS = {
+    "t33-650M":      {"kind": "esm",           "location": "esm2_t33_650M_UR50D", "layer": 33},
+    "protbert":      {"kind": "protbert",      "location": "Rostlab/prot_bert_bfd", "layer": 0},
+    "msapairformer": {"kind": "msapairformer", "location": "",                    "layer": 0},
+}
+MODEL_KEYS = list(MODELS)
 
 METRICS = ["euclidean", "cosine"]
 REDUCERS = ["t-sne", "umap", "mds"]
 COMPONENTS = [1, 2, 4, 6, 8, 10]
 
 WINDOWED_METHODS = [
-    f"reduced_{r}_{m}_{c}_windowed"
+    f"reduced_{r}_{m}_{c}_{model}_windowed"
     for r in REDUCERS
     for m in METRICS
     for c in COMPONENTS
+    for model in MODEL_KEYS
 ]
 
-PERTOK_DIR = "results/features_pertok/alignment_filtered_All"
+FASTA = "results/translations/alignment_filtered_All.fasta"
 
 
 wildcard_constraints:
+    model = "|".join(MODEL_KEYS),
     metric = "|".join(METRICS),
     redmethod = "|".join(REDUCERS),
     components = r"\d+",
@@ -41,47 +48,99 @@ wildcard_constraints:
     distance_threshold = r"[0-9]+(\.[0-9]+)?"
 
 
+def pertok_source(model):
+    if MODELS[model]["kind"] == "msapairformer":
+        return f"results/features_pertok_{model}/embeddings.npz"
+    return f"results/features_pertok_{model}/alignment_filtered_All"
+
+
+def matrix_dep(wc):
+    if MODELS[wc.model]["kind"] == "msapairformer":
+        return f"results/features_pertok_{wc.model}/embeddings.npz"
+    return f"results/pertok_{wc.model}.done"
+
+
 rule all:
     input:
         "results/full_HDBSCAN_metadata_windowed.csv"
 
 
-rule extract_features_pertok:
+rule extract_pertok_esm:
     input:
-        fasta = "results/translations/alignment_filtered_All.fasta"
+        fasta = FASTA
     output:
-        marker = "results/embedding_pertok.txt"
+        marker = "results/pertok_{model}.done"
+    wildcard_constraints:
+        model = "|".join(m for m in MODEL_KEYS if MODELS[m]["kind"] == "esm")
     conda: "../envs/clustering.yaml"
     resources:
         gpu = 1
     params:
-        output_dir = PERTOK_DIR,
-        model = MODEL_LOCATION,
-        layer = LAYER
+        outdir = lambda wc: pertok_source(wc.model),
+        location = lambda wc: MODELS[wc.model]["location"],
+        layer = lambda wc: MODELS[wc.model]["layer"]
     shell:
         """
-        python ../scripts/extract.py {params.model} {input.fasta} {params.output_dir} \
+        python ../scripts/extract.py {params.location} {input.fasta} {params.outdir} \
             --repr_layers {params.layer} --include per_tok --cuda_device 0
         touch {output.marker}
         """
 
 
+rule extract_pertok_protbert:
+    input:
+        fasta = FASTA
+    output:
+        marker = "results/pertok_{model}.done"
+    wildcard_constraints:
+        model = "|".join(m for m in MODEL_KEYS if MODELS[m]["kind"] == "protbert")
+    conda: "../envs/clustering.yaml"
+    resources:
+        gpu = 1
+    params:
+        outdir = lambda wc: pertok_source(wc.model),
+        location = lambda wc: MODELS[wc.model]["location"],
+        layer = lambda wc: MODELS[wc.model]["layer"]
+    shell:
+        """
+        python ../scripts/extract_protbert_pertok.py --fasta {input.fasta} \
+            --output-dir {params.outdir} --model-name {params.location} --layer {params.layer}
+        touch {output.marker}
+        """
+
+
+rule extract_pertok_msapairformer:
+    input:
+        fasta = FASTA
+    output:
+        npz = "results/features_pertok_{model}/embeddings.npz"
+    wildcard_constraints:
+        model = "|".join(m for m in MODEL_KEYS if MODELS[m]["kind"] == "msapairformer")
+    conda: "../envs/msapairformer.yaml"
+    resources:
+        gpu = 1
+    shell:
+        """
+        python ../scripts/extract_msapairformer.py -i {input.fasta} -o {output.npz} --pooling concat
+        """
+
+
 rule build_windowed_distance_matrix:
     input:
-        marker = rules.extract_features_pertok.output.marker
+        dep = matrix_dep
     output:
-        matrix = "results/windowed_distance_matrix_{metric}.csv"
+        matrix = "results/windowed_distance_matrix_{model}_{metric}.csv"
     conda: "../envs/clustering.yaml"
     params:
-        input_dir = PERTOK_DIR,
-        layer = LAYER,
+        src = lambda wc: pertok_source(wc.model),
+        layer = lambda wc: MODELS[wc.model]["layer"],
         window_size = WINDOW_SIZE,
         overlap = OVERLAP,
         sigma = SIGMA
     shell:
         """
         python ../scripts/build_windowed_distance_matrix.py \
-            --input-dir {params.input_dir} \
+            --input {params.src} \
             --output {output.matrix} \
             --layer {params.layer} \
             --window-size {params.window_size} \
@@ -93,9 +152,9 @@ rule build_windowed_distance_matrix:
 
 rule reduce_windowed_matrix:
     input:
-        matrix = "results/windowed_distance_matrix_{metric}.csv"
+        matrix = "results/windowed_distance_matrix_{model}_{metric}.csv"
     output:
-        embedding = "results/embed_reduced_{redmethod}_{metric}_{components}_windowed.csv"
+        embedding = "results/embed_reduced_{redmethod}_{metric}_{components}_{model}_windowed.csv"
     conda: "../envs/clustering.yaml"
     params:
         random_seed = RANDOM_SEED

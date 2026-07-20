@@ -37,7 +37,7 @@ def gaussian_weights(width: int, sigma: float):
     return w / s if s > 0 else np.full(width, 1.0 / width)
 
 
-def load_embeddings(input_dir: str, layer: int):
+def load_from_pt(input_dir: str, layer: int):
     pt_files = sorted(glob.glob(os.path.join(input_dir, "**", "*.pt"), recursive=True))
     if not pt_files:
         raise FileNotFoundError(f"No .pt files found under {input_dir}")
@@ -47,16 +47,31 @@ def load_embeddings(input_dir: str, layer: int):
         data = torch.load(f, map_location="cpu")
         reps = data.get("full", {}).get("representations", {}).get(layer)
         if reps is None:
-            raise KeyError(
-                f"{f}: missing per-token representations for layer {layer}. "
-                "Run extract.py with --include per_tok."
-            )
+            raise KeyError(f"{f}: missing per-token representations for layer {layer}.")
         labels.append(data["label"])
         mats.append(reps.numpy())
 
     order = np.argsort(labels)
     labels = [labels[i] for i in order]
     mats = [mats[i] for i in order]
+    return labels, mats
+
+
+def load_from_npz(path: str):
+    data = np.load(path, allow_pickle=True)
+    labels = [str(x) for x in data["labels"]]
+    emb = data["embeddings"]  # (N, L, D)
+    order = np.argsort(labels)
+    labels = [labels[i] for i in order]
+    mats = [emb[i] for i in order]
+    return labels, mats
+
+
+def load_embeddings(input_path: str, layer: int):
+    if input_path.endswith(".npz"):
+        labels, mats = load_from_npz(input_path)
+    else:
+        labels, mats = load_from_pt(input_path, layer)
 
     lengths = {m.shape[0] for m in mats}
     if len(lengths) != 1:
@@ -68,7 +83,7 @@ def load_embeddings(input_dir: str, layer: int):
 
 def main():
     ap = argparse.ArgumentParser(description="Windowed (Gaussian-taper) distance matrix from per-token embeddings.")
-    ap.add_argument("--input-dir", required=True, help="Directory of per-token .pt files (extract.py --include per_tok).")
+    ap.add_argument("--input", required=True, help="Per-token .pt directory, or an .npz with keys labels/embeddings.")
     ap.add_argument("--output", required=True, help="Output distance-matrix CSV (pathogen-distance format).")
     ap.add_argument("--layer", type=int, default=33, help="Layer number to read (default: 33).")
     ap.add_argument("--window-size", type=int, default=1, help="Window size in residues (default: 1 = per-site).")
@@ -78,7 +93,7 @@ def main():
     ap.add_argument("--reduce", choices=["mean", "sum"], default="mean", help="Aggregate over windows (default: mean).")
     args = ap.parse_args()
 
-    labels, emb = load_embeddings(args.input_dir, args.layer)
+    labels, emb = load_embeddings(args.input, args.layer)
     N, L, D = emb.shape
 
     windows = compute_windows(L, args.window_size, args.overlap)
