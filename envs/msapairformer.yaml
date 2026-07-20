@@ -7,6 +7,9 @@ dependencies:
   - pip:
       - torch
       - msa-pairformer==1.0.1
+      - huggingface_hub
+      - safetensors
+      - einops
       - biopython
       - numpy==1.26.4
       - pandas

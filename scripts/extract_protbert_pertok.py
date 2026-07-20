@@ -42,7 +42,9 @@ def main():
             emb = out.last_hidden_state[0, 1:L + 1].clone().cpu()  # (L, D)
 
         result = {"label": label, "full": {"representations": {args.layer: emb}}}
-        torch.save(result, args.output_dir / f"{label}.pt")
+        output_file = args.output_dir / f"{label}.pt"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(result, output_file)
 
 
 if __name__ == "__main__":
