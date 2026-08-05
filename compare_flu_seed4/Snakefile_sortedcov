@@ -25,15 +25,17 @@ COMPONENTS = [2]
 
 WEIGHTINGS = ["shannon"]
 COVERAGES = [80, 85, 90, 95]
-DIRECTIONS = ["low"]
+DIRECTIONS = ["high", "low"]
 NORMALIZE = ["weights", "count"]
+INCLUDE_ZERO = [0, 1]
 
 SORTEDCOV_KEYS = [
-    f"sortedcov_{w}_{d}_{n}_{cov}_{model}"
+    f"sortedcov_{w}_{d}_{n}_{cov}_inc0{inc0}_{model}"
     for w in WEIGHTINGS
     for d in DIRECTIONS
     for n in NORMALIZE
     for cov in COVERAGES
+    for inc0 in INCLUDE_ZERO
     for model in MODEL_KEYS
 ]
 
@@ -57,6 +59,7 @@ wildcard_constraints:
     direction = "|".join(DIRECTIONS),
     normalize = "|".join(NORMALIZE),
     coverage = "|".join(str(c) for c in COVERAGES),
+    inc0 = "|".join(str(i) for i in INCLUDE_ZERO),
     method = "|".join(SORTEDCOV_METHODS),
     distance_threshold = r"[0-9]+(\.[0-9]+)?"
 
@@ -158,12 +161,13 @@ rule build_sortedcov_distance_matrix:
         dep = matrix_dep,
         weights = "results/site_weights_{weighting}.npy"
     output:
-        matrix = "results/sortedcov_distance_matrix_{weighting}_{direction}_{normalize}_{coverage}_{model}_{metric}.csv"
+        matrix = "results/sortedcov_distance_matrix_{weighting}_{direction}_{normalize}_{coverage}_inc0{inc0}_{model}_{metric}.csv"
     conda: "../envs/clustering.yaml"
     params:
         src = lambda wc: pertok_source(wc.model),
         layer = lambda wc: MODELS[wc.model]["layer"],
-        coverage_frac = lambda wc: int(wc.coverage) / 100.0
+        coverage_frac = lambda wc: int(wc.coverage) / 100.0,
+        include_zero_flag = lambda wc: "--include-zero" if wc.inc0 == "1" else ""
     shell:
         """
         python ../scripts/build_sortedcov_distance_matrix.py \
@@ -174,15 +178,16 @@ rule build_sortedcov_distance_matrix:
             --coverage {params.coverage_frac} \
             --metric {wildcards.metric} \
             --direction {wildcards.direction} \
-            --normalize {wildcards.normalize}
+            --normalize {wildcards.normalize} \
+            {params.include_zero_flag}
         """
 
 
 rule reduce_sortedcov_matrix:
     input:
-        matrix = "results/sortedcov_distance_matrix_{weighting}_{direction}_{normalize}_{coverage}_{model}_{metric}.csv"
+        matrix = "results/sortedcov_distance_matrix_{weighting}_{direction}_{normalize}_{coverage}_inc0{inc0}_{model}_{metric}.csv"
     output:
-        embedding = "results/embed_reduced_{redmethod}_{metric}_{components}_sortedcov_{weighting}_{direction}_{normalize}_{coverage}_{model}.csv"
+        embedding = "results/embed_reduced_{redmethod}_{metric}_{components}_sortedcov_{weighting}_{direction}_{normalize}_{coverage}_inc0{inc0}_{model}.csv"
     conda: "../envs/clustering.yaml"
     params:
         random_seed = RANDOM_SEED
