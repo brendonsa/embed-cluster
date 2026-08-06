@@ -81,66 +81,6 @@ rule all:
         "results/full_HDBSCAN_metadata_sortedcov.csv"
 
 
-rule extract_pertok_esm_sortedcov:
-    input:
-        fasta = FASTA
-    output:
-        marker = "results/pertok_{model}.done"
-    wildcard_constraints:
-        model = "|".join(m for m in MODEL_KEYS if MODELS[m]["kind"] == "esm")
-    conda: "../envs/clustering.yaml"
-    resources:
-        gpu = 1
-    params:
-        outdir = lambda wc: pertok_source(wc.model),
-        location = lambda wc: MODELS[wc.model]["location"],
-        layer = lambda wc: MODELS[wc.model]["layer"]
-    shell:
-        """
-        python ../scripts/extract.py {params.location} {input.fasta} {params.outdir} \
-            --repr_layers {params.layer} --include per_tok --cuda_device 0
-        touch {output.marker}
-        """
-
-
-rule extract_pertok_protbert_sortedcov:
-    input:
-        fasta = FASTA
-    output:
-        marker = "results/pertok_{model}.done"
-    wildcard_constraints:
-        model = "|".join(m for m in MODEL_KEYS if MODELS[m]["kind"] == "protbert")
-    conda: "../envs/clustering.yaml"
-    resources:
-        gpu = 1
-    params:
-        outdir = lambda wc: pertok_source(wc.model),
-        location = lambda wc: MODELS[wc.model]["location"],
-        layer = lambda wc: MODELS[wc.model]["layer"]
-    shell:
-        """
-        python ../scripts/extract_protbert_pertok.py --fasta {input.fasta} \
-            --output-dir {params.outdir} --model-name {params.location} --layer {params.layer}
-        touch {output.marker}
-        """
-
-
-rule extract_pertok_msapairformer_sortedcov:
-    input:
-        fasta = FASTA
-    output:
-        npz = "results/features_pertok_{model}/embeddings.npz"
-    wildcard_constraints:
-        model = "|".join(m for m in MODEL_KEYS if MODELS[m]["kind"] == "msapairformer")
-    conda: "../envs/msapairformer.yaml"
-    resources:
-        gpu = 1
-    shell:
-        """
-        python ../scripts/extract_msapairformer.py -i {input.fasta} -o {output.npz} --pooling concat
-        """
-
-
 rule compute_site_weights:
     input:
         fasta = FASTA
