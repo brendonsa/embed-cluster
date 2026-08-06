@@ -1,0 +1,176 @@
+RANDOM_SEED = 314159
+
+DISTANCE_THRESHOLDS = [
+    0.0, 0.1, 0.2, 0.3, 0.4, 0.5,
+    1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0,
+    5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0,
+    10.5, 11.0, 11.5, 12.0, 12.5, 13.0, 13.5, 14.0, 14.5, 15.0,
+    15.5, 16.0, 16.5, 17.0, 17.5, 18.0, 18.5, 19.0, 19.5, 20.0,
+]
+
+CLUSTER_MIN_SIZE = 10
+CLUSTER_MIN_SAMPLES = 5
+
+# kind: esm | protbert | msapairformer
+MODELS = {
+    "t33-650M":      {"kind": "esm",           "location": "esm2_t33_650M_UR50D", "layer": 33},
+    "protbert":      {"kind": "protbert",      "location": "Rostlab/prot_bert_bfd", "layer": 0},
+    "msapairformer": {"kind": "msapairformer", "location": "",                    "layer": 0},
+}
+MODEL_KEYS = list(MODELS)
+
+METRICS = ["euclidean", "cosine"]
+REDUCERS = ["t-sne"]
+COMPONENTS = [2]
+
+WINDOW_SIZES = [10, 15, 20, 25]
+OVERLAPS = [1, 2, 3]
+SIGMAS = [2, 3, 5]
+
+GWINDOWS_KEYS = [
+    f"gwindows_{model}_w{w}_ov{ov}_s{s}"
+    for model in MODEL_KEYS
+    for w in WINDOW_SIZES
+    for ov in OVERLAPS
+    for s in SIGMAS
+] + [
+    f"gwindows_{model}_w1_ov0_s1"
+    for model in MODEL_KEYS
+]
+
+GWINDOWS_METHODS = [
+    f"reduced_{r}_{m}_{c}_{key}"
+    for r in REDUCERS
+    for m in METRICS
+    for c in COMPONENTS
+    for key in GWINDOWS_KEYS
+]
+
+FASTA = "results/translations/alignment_filtered_All.fasta"
+
+
+wildcard_constraints:
+    model = "|".join(MODEL_KEYS),
+    metric = "|".join(METRICS),
+    redmethod = "|".join(REDUCERS),
+    components = r"\d+",
+    winsize = r"\d+",
+    overlap = r"\d+",
+    sigma = r"\d+",
+    method = "|".join(GWINDOWS_METHODS),
+    distance_threshold = r"[0-9]+(\.[0-9]+)?"
+
+
+def pertok_source(model):
+    if MODELS[model]["kind"] == "msapairformer":
+        return f"results/features_pertok_{model}/embeddings.npz"
+    return f"results/features_pertok_{model}/alignment_filtered_All"
+
+
+def matrix_dep(wc):
+    if MODELS[wc.model]["kind"] == "msapairformer":
+        return f"results/features_pertok_{wc.model}/embeddings.npz"
+    return f"results/pertok_{wc.model}.done"
+
+
+rule all:
+    input:
+        "results/full_HDBSCAN_metadata_gwindows.csv"
+
+
+rule build_gwindows_distance_matrix:
+    input:
+        dep = matrix_dep
+    output:
+        matrix = "results/gwindows_distance_matrix_{model}_{metric}_w{winsize}_ov{overlap}_s{sigma}.csv"
+    conda: "../envs/clustering.yaml"
+    params:
+        src = lambda wc: pertok_source(wc.model),
+        layer = lambda wc: MODELS[wc.model]["layer"]
+    shell:
+        """
+        python ../scripts/build_windowed_distance_matrix.py \
+            --input {params.src} \
+            --output {output.matrix} \
+            --layer {params.layer} \
+            --window-size {wildcards.winsize} \
+            --overlap {wildcards.overlap} \
+            --sigma {wildcards.sigma} \
+            --metric {wildcards.metric}
+        """
+
+
+rule reduce_gwindows_matrix:
+    input:
+        matrix = "results/gwindows_distance_matrix_{model}_{metric}_w{winsize}_ov{overlap}_s{sigma}.csv"
+    output:
+        embedding = "results/embed_reduced_{redmethod}_{metric}_{components}_gwindows_{model}_w{winsize}_ov{overlap}_s{sigma}.csv"
+    conda: "../envs/clustering.yaml"
+    params:
+        random_seed = RANDOM_SEED
+    shell:
+        """
+        python ../scripts/reduce_2d_matrix.py {input.matrix} {wildcards.redmethod} {output.embedding} \
+            --n_components {wildcards.components} --random-seed {params.random_seed}
+        """
+
+
+rule cluster_gwindows:
+    input:
+        embedding = "results/embed_{method}.csv"
+    output:
+        dataframe = "results/cluster/{method}/{distance_threshold}.csv",
+        figure    = "results/cluster/{method}/{distance_threshold}.pdf",
+    params:
+        min_size = CLUSTER_MIN_SIZE,
+        min_samples = CLUSTER_MIN_SAMPLES,
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        pathogen-cluster \
+            --embedding {input.embedding} \
+            --min-size {params.min_size} \
+            --min-samples {params.min_samples} \
+            --distance-threshold {wildcards.distance_threshold} \
+            --label-attribute "{wildcards.method}_cluster_at_{wildcards.distance_threshold}" \
+            --output-dataframe {output.dataframe} \
+            --output-figure {output.figure}
+        """
+
+
+rule cluster_accuracy_gwindows:
+    input:
+        metadata = "results/table_of_tips.tsv",
+        clusters = "results/cluster/{method}/{distance_threshold}.csv",
+    output:
+        dataframe = "results/cluster_accuracy/{method}/{distance_threshold}.csv",
+    params:
+        clade_column = "clade_membership",
+        ignored_clusters = ["unassigned", "-1"],
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python3 ../scripts/metadata_HDBSCAN.py \
+            --method {wildcards.method} \
+            --true-clusters {input.metadata} \
+            --true-clusters-column {params.clade_column:q} \
+            --predicted-clusters {input.clusters} \
+            --predicted-clusters-column "{wildcards.method}_cluster_at_{wildcards.distance_threshold}" \
+            --ignored-clusters {params.ignored_clusters:q} \
+            --output {output.dataframe}
+        """
+
+
+rule concat_cluster_accuracy_gwindows:
+    input:
+        accuracies = expand(
+            "results/cluster_accuracy/{method}/{distance_threshold}.csv",
+            method=GWINDOWS_METHODS,
+            distance_threshold=DISTANCE_THRESHOLDS,
+        )
+    output:
+        metadata = "results/full_HDBSCAN_metadata_gwindows.csv"
+    params:
+        column = "normalized_vi",
+    conda: "../envs/clustering.yaml"
+    script: "../scripts/concat_cluster_accuracy.py"
