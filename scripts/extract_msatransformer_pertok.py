@@ -9,10 +9,16 @@ from Bio import SeqIO
 import esm
 
 
+MAX_LEN = 1023  # model caps total tokens (incl. BOS) at 1024
+
+
 def load_msa(input_fasta):
     records = list(SeqIO.parse(input_fasta, "fasta"))
     labels = [r.id for r in records]
     seqs = [str(r.seq) for r in records]
+    if seqs and len(seqs[0]) > MAX_LEN:
+        print(f"[extract_msatransformer_pertok] truncating alignment {len(seqs[0])} -> {MAX_LEN} columns")
+        seqs = [s[:MAX_LEN] for s in seqs]
     return labels, seqs
 
 
