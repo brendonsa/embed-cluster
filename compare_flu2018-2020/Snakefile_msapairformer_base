@@ -1,0 +1,119 @@
+RANDOM_SEED = 314159
+
+CLUSTER_MIN_SIZE = 10
+CLUSTER_MIN_SAMPLES = 5
+
+REDUCERS = ["pca", "t-sne", "umap", "mds"]
+METRICS = ["euclidean", "cosine"]
+COMPONENTS = [1, 2, 4, 6, 8, 10]
+
+MSAPAIRFORMER_BASE_METHODS = [
+    f"reduced_{r}_{m}_{c}_msapairformer_base"
+    for r in REDUCERS
+    for m in METRICS
+    for c in COMPONENTS
+]
+
+PERTOK_NPZ = "results/features_pertok_msapairformer/embeddings.npz"
+
+
+wildcard_constraints:
+    metric = "|".join(METRICS),
+    redmethod = "|".join(REDUCERS),
+    components = r"\d+",
+    method = "|".join(MSAPAIRFORMER_BASE_METHODS)
+
+
+rule all:
+    input:
+        "results/full_HDBSCAN_metadata_msapairformer_base.csv"
+
+
+rule pool_msapairformer_mean:
+    input:
+        npz = PERTOK_NPZ
+    output:
+        csv = "results/embed_msapairformer_base.csv"
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        python ../scripts/pool_msapairformer_mean.py \
+            --input {input.npz} \
+            --output {output.csv}
+        """
+
+
+rule reduce_msapairformer_base:
+    input:
+        csv = "results/embed_msapairformer_base.csv"
+    output:
+        embedding = "results/embed_reduced_{redmethod}_{metric}_{components}_msapairformer_base.csv"
+    conda: "../envs/clustering.yaml"
+    params:
+        random_seed = RANDOM_SEED
+    shell:
+        """
+        python ../scripts/reduce_2d.py {input.csv} {wildcards.redmethod} {output.embedding} \
+            --metric {wildcards.metric} --n_components {wildcards.components} --random-seed {params.random_seed}
+        """
+
+
+rule cluster_msapairformer_base_with_optimal_parameters:
+    input:
+        embedding = "results/embed_{method}.csv",
+        parameters = "../compare_flu/results/optimal_cluster_accuracy_and_parameters_msapairformer_base.csv",
+    output:
+        clustered_embedding = "results/cluster_embed_{method}.csv",
+        clustered_embedding_figure = "results/cluster_embed_{method}.pdf",
+    conda: "../envs/clustering.yaml"
+    params:
+        min_size = CLUSTER_MIN_SIZE,
+        min_samples = CLUSTER_MIN_SAMPLES,
+    shell:
+        """
+        pathogen-cluster \
+            --embedding {input.embedding} \
+            --label-attribute "{wildcards.method}_label" \
+            --min-size {params.min_size} \
+            --min-samples {params.min_samples} \
+            --distance-threshold "$(csvtk filter2 -f '$method=="{wildcards.method}"' {input.parameters} | csvtk cut -f distance_threshold | csvtk del-header)" \
+            --output-dataframe {output.clustered_embedding} \
+            --output-figure {output.clustered_embedding_figure}
+        """
+
+
+rule cluster_accuracy_msapairformer_base:
+    input:
+        metadata = "results/table_of_tips.tsv",
+        embedding = "results/cluster_embed_{method}.csv",
+    output:
+        dataframe = "results/cluster_accuracy_{method}.csv",
+    conda: "../envs/clustering.yaml"
+    params:
+        clade_column = "clade_membership",
+        ignored_clusters = ["unassigned", "-1"],
+    shell:
+        """
+        python3 ../scripts/metadata_HDBSCAN.py \
+            --method {wildcards.method} \
+            --true-clusters {input.metadata} \
+            --true-clusters-column {params.clade_column:q} \
+            --predicted-clusters {input.embedding} \
+            --predicted-clusters-column "{wildcards.method}_label" \
+            --ignored-clusters {params.ignored_clusters:q} \
+            --output {output.dataframe}
+        """
+
+
+rule concat_cluster_accuracy_msapairformer_base:
+    input:
+        accuracies = expand(
+            "results/cluster_accuracy_{method}.csv",
+            method=MSAPAIRFORMER_BASE_METHODS,
+        )
+    output:
+        metadata = "results/full_HDBSCAN_metadata_msapairformer_base.csv"
+    params:
+        column = "normalized_vi",
+    conda: "../envs/clustering.yaml"
+    script: "../scripts/concat_cluster_accuracy.py"
