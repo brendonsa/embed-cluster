@@ -36,7 +36,8 @@ wildcard_constraints:
 
 rule all:
     input:
-        "results/full_HDBSCAN_metadata_protvec_windowed.csv"
+        "results/full_HDBSCAN_metadata_protvec_windowed.csv",
+        "results/optimal_cluster_accuracy_and_parameters_protvec_windowed.csv"
 
 
 rule extract_protvec_pertok:
@@ -145,3 +146,18 @@ rule concat_cluster_accuracy_protvec_windowed:
         column = "normalized_vi",
     conda: "../envs/clustering.yaml"
     script: "../scripts/concat_cluster_accuracy.py"
+
+
+rule get_optimal_cluster_parameters_and_accuracies_protvec_windowed:
+    input:
+        accuracies = "results/full_HDBSCAN_metadata_protvec_windowed.csv",
+    output:
+        accuracies = "results/optimal_cluster_accuracy_and_parameters_protvec_windowed.csv",
+    conda: "../envs/clustering.yaml"
+    shell:
+        """
+        csvtk mutate -f predicted_clusters_column -n distance_threshold \
+        -p ".*_cluster_at_(\\d*\\.?\\d+)" {input.accuracies} \
+        | csvtk sort -k normalized_vi -k method -k distance_threshold \
+        | csvtk uniq -f method -n 1 > {output.accuracies}
+        """
